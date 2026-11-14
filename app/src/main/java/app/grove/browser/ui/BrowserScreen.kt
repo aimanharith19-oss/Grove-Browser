@@ -54,6 +54,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
@@ -129,8 +133,17 @@ fun BrowserScreen(vm: BrowserVM) {
     }
 
     val bg = MaterialTheme.colorScheme.background
+    val tint = barColor(t)
+    val edge = if (overlay == Overlay.NONE && !t.home) tint else bg
+    val view = LocalView.current
+    SideEffect {
+        WindowCompat.getInsetsController(activity.window, view).apply {
+            val light = edge.luminance() > 0.5f
+            isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
+        }
+    }
     Column(
-        Modifier.fillMaxSize().background(bg)
+        Modifier.fillMaxSize().background(edge)
             .then(if (immersive) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
     ) {
         if (find && !immersive && overlay == Overlay.NONE) FindBar(t.session) { find = false }
@@ -209,8 +222,12 @@ fun BrowserScreen(vm: BrowserVM) {
 @Composable
 private fun GeckoHost(session: GeckoSession) {
     AndroidView(
-        factory = { GeckoView(it) },
-        update = { v -> if (v.session !== session) { if (v.session != null) v.releaseSession(); v.setSession(session) } },
+        // TextureView rendering: no black flashes or misplaced pages under Grove's menus and overlays.
+        factory = { GeckoView(it).apply { setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW) } },
+        update = { v ->
+            // Only show a session Gecko has opened (an unopened one would make GeckoView open a second engine).
+            if (v.session !== session && session.isOpen) { if (v.session != null) v.releaseSession(); v.setSession(session) }
+        },
         onRelease = { it.releaseSession() },
         modifier = Modifier.fillMaxSize(),
     )
@@ -223,8 +240,8 @@ private fun AppBar(
     onMenu: (Boolean) -> Unit, onTabs: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val bar = if (t.private) Color(0xFF2B1A45) else cs.surfaceVariant
-    val fg = if (t.private) Color.White else cs.onSurface
+    val bar = barColor(t)
+    val fg = if (bar.luminance() > 0.5f) Color.Black else Color.White
     Column(Modifier.fillMaxWidth().background(bar)) {
         if (t.progress in 1..99) LinearProgressIndicator(
             progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
@@ -259,6 +276,17 @@ private fun AppBar(
                 }
             }
         }
+    }
+}
+
+/** Bar colour: the website's theme colour, else Grove's accent-tinted surface; purple for inprivate. */
+@Composable
+fun barColor(t: Tab): Color {
+    val cs = MaterialTheme.colorScheme
+    return when {
+        t.private -> Color(0xFF2B1A45)
+        t.theme != null && !t.home -> Color(t.theme!!).copy(alpha = 1f)
+        else -> lerp(cs.surfaceVariant, cs.primary, 0.18f)
     }
 }
 

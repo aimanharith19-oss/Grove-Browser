@@ -115,7 +115,11 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
             t.url = url
             if (lazy) t.pending = true else t.session.loadUri(url)
         }
-        if (select) select(t) else if (open) t.session.setActive(false)
+        when {
+            select && open -> select(t)
+            select -> selectWhenOpen(t) // Gecko opens it right after we hand it over
+            open -> t.session.setActive(false)
+        }
         return t
     }
 
@@ -125,10 +129,18 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         if (c != null && c.home && !c.private) go(url) else newTab(url)
     }
 
+    private fun selectWhenOpen(t: Tab, tries: Int = 0) {
+        main.postDelayed({
+            if (t !in tabs) return@postDelayed
+            if (t.session.isOpen) select(t) else if (tries < 40) selectWhenOpen(t, tries + 1)
+        }, 25)
+    }
+
     fun select(t: Tab) {
+        if (!t.session.isOpen) return selectWhenOpen(t)
         val prev = cur
         val ctl = runtime.webExtensionController
-        if (prev !== t && prev != null && prev in tabs) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
+        if (prev !== t && prev != null && prev in tabs && prev.session.isOpen) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
         cur = t
         t.session.setActive(true)
         ctl.setTabActive(t.session, true)
@@ -345,6 +357,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                     override fun onPortMessage(message: Any, port: WebExtension.Port) {
                         val m = message as? JSONObject ?: return
                         if (m.optString("t") == "icon") Icons.hint(ctx, t.url, m.optString("h"))
+                        if (m.optString("t") == "theme") t.theme = parseColor(m.optString("c"))
                         if (m.optString("t") == "video") {
                             t.videoPlaying = m.optBoolean("playing")
                             if (m.optLong("w") > 0 && m.optLong("h") > 0) { t.videoW = m.optLong("w"); t.videoH = m.optLong("h") }
@@ -472,7 +485,10 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
             }
         }
         s.progressDelegate = object : GeckoSession.ProgressDelegate {
-            override fun onPageStart(session: GeckoSession, url: String) { t.progress = 5; t.manifest = null; t.videoPlaying = false }
+            override fun onPageStart(session: GeckoSession, url: String) {
+                t.progress = 5; t.manifest = null; t.videoPlaying = false
+                if (Urls.host(url) != Urls.host(t.url)) t.theme = null
+            }
             override fun onProgressChange(session: GeckoSession, progress: Int) { t.progress = progress }
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 t.progress = 100
@@ -490,7 +506,10 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                 val type = response.headers.entries.firstOrNull { it.key.equals("Content-Type", true) }?.value.orEmpty()
                 if (type.contains("x-xpinstall")) { runCatching { response.body?.close() }; Gecko.install(response.uri) } else download(response)
             }
-            override fun onWebAppManifest(session: GeckoSession, manifest: JSONObject) { t.manifest = manifest }
+            override fun onWebAppManifest(session: GeckoSession, manifest: JSONObject) {
+                t.manifest = manifest
+                if (t.theme == null) t.theme = parseColor(manifest.optString("theme_color"))
+            }
             override fun onCrash(session: GeckoSession) { main.post { revive(t) } }
             override fun onKill(session: GeckoSession) { main.post { revive(t) } }
         }
@@ -530,6 +549,20 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         Gecko.helper?.let { bindHelper(t, it) }
         // No permission delegate: camera, mic, location and notifications are denied by default.
     }
+
+    /** CSS colour (#rgb, #rrggbb, rgb()) from a page -> ARGB, ignoring transparent ones. */
+    private fun parseColor(c: String): Int? = runCatching {
+        val s = c.trim().lowercase()
+        when {
+            s.startsWith("#") && s.length == 4 -> android.graphics.Color.parseColor("#" + s.drop(1).map { "$it$it" }.joinToString(""))
+            s.startsWith("#") -> android.graphics.Color.parseColor(s.take(7))
+            s.startsWith("rgb") -> {
+                val n = Regex("[\\d.]+").findAll(s).map { it.value.toFloat() }.toList()
+                if (n.size >= 4 && n[3] < 0.5f) null else android.graphics.Color.rgb(n[0].toInt(), n[1].toInt(), n[2].toInt())
+            }
+            else -> null
+        }
+    }.getOrNull()
 
     companion object {
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript", "moz-extension", "resource")

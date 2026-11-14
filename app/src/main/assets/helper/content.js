@@ -40,6 +40,22 @@
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", icons, { once: true }); else icons();
 
+  // Website theme colour, to tint Grove's bars like the page.
+  if (window === window.top) {
+    let sent = null;
+    const theme = () => {
+      const metas = [...document.querySelectorAll("meta[name='theme-color' i]")];
+      const m = metas.find(e => !e.media || matchMedia(e.media).matches);
+      const c = m ? (m.content || "").trim() : "";
+      if (c !== sent) { sent = c; send({ t: "theme", c }); }
+    };
+    const watch = () => {
+      theme();
+      if (document.head) new MutationObserver(theme).observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ["content", "media"] });
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch, { once: true }); else watch();
+  }
+
   // Picture-in-picture: make the playing video fill the (small) window. Uses inline styles so page CSP can't block it.
   const FILL = { position: "fixed", inset: "0", width: "100vw", height: "100vh", "max-width": "none", "max-height": "none",
     "z-index": "2147483647", background: "#000", "object-fit": "contain", transform: "none", margin: "0" };

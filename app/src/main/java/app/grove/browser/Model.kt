@@ -42,6 +42,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     val ports = mutableListOf<WebExtension.Port>()
     /** Web app manifest of the current page, if it has one (PWA). */
     var manifest by mutableStateOf<JSONObject?>(null)
+    /** The website's theme colour (meta theme-color), used to tint Grove's bars. */
+    var theme by mutableStateOf<Int?>(null)
     val home get() = url.isBlank() || url == "about:blank"
 }
 
