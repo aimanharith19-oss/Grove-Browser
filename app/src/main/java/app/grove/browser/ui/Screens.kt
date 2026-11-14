@@ -265,6 +265,9 @@ fun AddonsScreen(vm: BrowserVM, onClose: () -> Unit) {
                     Text((m.name ?: e.id).lowercase(), fontSize = 22.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
                     Text("version ${m.version} · " + if (m.enabled) "on" else "off", fontSize = 12.sp, color = cs.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        // the add-on's popup (e.g. uBlock Origin's on/off switch for the current site)
+                        if (m.enabled && Gecko.actions.containsKey(e.id)) Text("open", color = cs.primary,
+                            modifier = Modifier.clickable { onClose(); Gecko.actions[e.id]?.click() }.padding(vertical = 6.dp))
                         Text(if (m.enabled) "turn off" else "turn on", color = cs.onBackground,
                             modifier = Modifier.clickable { Gecko.setEnabled(e, !m.enabled) }.padding(vertical = 6.dp))
                         if (m.enabled && m.optionsPageUrl != null) Text("settings", color = cs.onBackground,

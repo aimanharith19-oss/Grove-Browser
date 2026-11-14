@@ -182,10 +182,6 @@ fun BrowserScreen(vm: BrowserVM) {
                         add(MenuItem("pin to start") { pin(ctx, t) })
                     }
                 }
-                // toolbar buttons of add-ons (uBlock Origin etc.) open their popup
-                Gecko.addons.filter { it.metaData.enabled && Gecko.actions.containsKey(it.id) }.forEach { e ->
-                    add(MenuItem((e.metaData.name ?: e.id).lowercase()) { Gecko.actions[e.id]?.click() })
-                }
                 add(MenuItem("extensions") { overlay = Overlay.ADDONS })
                 add(MenuItem("settings") { overlay = Overlay.SETTINGS })
             }
