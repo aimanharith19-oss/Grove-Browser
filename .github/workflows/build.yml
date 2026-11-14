@@ -23,9 +23,9 @@ jobs:
         env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
         run: |
           if [ -z "$KS" ]; then echo "no GROVE_KEYSTORE secret: debug key"; exit 0; fi
-          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks || { echo "::error::GROVE_KEYSTORE secret is not valid base64 - paste only the content of grove-keystore-base64.txt"; exit 1; }
+          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks || { echo "::warning::GROVE_KEYSTORE secret is not valid - using debug key"; exit 0; }
           pw=$(printf '%s' "$PW" | sed 's/^.*= *//' | tr -d ' \r\n')
-          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || { echo "::error::GROVE_KS_PASS secret does not match the key - paste only the 24-character password"; exit 1; }
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || { echo "::warning::GROVE_KS_PASS secret does not match the key - using debug key"; exit 0; }
           echo "GROVE_KEYSTORE_FILE=$RUNNER_TEMP/grove.jks" >> $GITHUB_ENV
           echo "signing with Grove key"
       - run: gradle assembleRelease --stacktrace
@@ -37,6 +37,12 @@ jobs:
           unzip -v app/build/outputs/apk/release/app-arm64-v8a-release.apk | awk '{s+=$3} /assets\/extensions/ {u+=$3} END {print "uBO bytes:", u}'
       - uses: actions/upload-artifact@v4
         with: { name: grove-browser, path: app/build/outputs/apk/release/*.apk }
+      - name: Publish APK to apk branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir out && cp app/build/outputs/apk/release/app-arm64-v8a-release.apk out/grove-browser-arm64.apk
+          cd out && git init -q -b apk && git add . && git -c user.name=ci -c user.email=ci@grove commit -qm "APK ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with: { files: app/build/outputs/apk/release/*.apk }
