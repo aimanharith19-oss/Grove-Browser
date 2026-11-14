@@ -27,12 +27,14 @@ android {
     }
     // Same signing key for every build (from the repo secrets), so updates install over the old app.
     val ks = System.getenv("GROVE_KEYSTORE_FILE")
+    // Tolerates a pasted label or spaces around the password.
+    val ksPass = System.getenv("GROVE_KS_PASS")?.substringAfter("=")?.trim()
     signingConfigs {
         if (ks != null && file(ks).exists()) create("grove") {
             storeFile = file(ks)
-            storePassword = System.getenv("GROVE_KS_PASS")
+            storePassword = ksPass
             keyAlias = "grove"
-            keyPassword = System.getenv("GROVE_KS_PASS")
+            keyPassword = ksPass
         }
     }
     buildTypes {
