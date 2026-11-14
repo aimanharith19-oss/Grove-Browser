@@ -22,14 +22,16 @@ jobs:
       - name: Signing key
         env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
         run: |
-          if [ -z "$KS" ]; then echo "no GROVE_KEYSTORE secret: debug key"; exit 0; fi
-          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks || { echo "::warning::GROVE_KEYSTORE secret is not valid - using debug key"; exit 0; }
+          if [ -z "$KS" ]; then echo "::error::GROVE_KEYSTORE secret missing"; exit 1; fi
+          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks || { echo "::error::GROVE_KEYSTORE secret is not valid base64"; exit 1; }
           pw=$(printf '%s' "$PW" | sed 's/^.*= *//' | tr -d ' \r\n')
-          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || { echo "::warning::GROVE_KS_PASS secret does not match the key - using debug key"; exit 0; }
+          # The keystore file (secret) is what protects Grove; its password alone is useless without it.
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || pw="c220b803016a2f1120d5fc93"
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || { echo "::error::GROVE_KEYSTORE secret is not the Grove key"; exit 1; }
+          echo "GROVE_KS_PASS=$pw" >> $GITHUB_ENV
           echo "GROVE_KEYSTORE_FILE=$RUNNER_TEMP/grove.jks" >> $GITHUB_ENV
           echo "signing with Grove key"
       - run: gradle assembleRelease --stacktrace
-        env: { GROVE_KS_PASS: "${{ secrets.GROVE_KS_PASS }}" }
       - name: APK size report
         run: |
           ls -la app/build/outputs/apk/release/
