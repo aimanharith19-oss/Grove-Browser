@@ -13,5 +13,5 @@ jobs:
       - run: |
           aar=$(find ~/.gradle/caches -name "geckoview-*.aar" | head -1); echo $aar
           mkdir x && cd x && unzip -q $aar classes.jar && unzip -q classes.jar
-          for c in 'WebExtensionController$PromptDelegate' 'WebExtensionController' 'WebExtension$ActionDelegate' 'WebExtension$Action' 'WebExtension$MetaData' 'GeckoSession$MediaSession$Delegate' 'MediaSession$Delegate' 'MediaSession' 'GeckoSession$ContentDelegate' 'GeckoRuntimeSettings' 'WebExtension$PortDelegate' 'WebExtension$MessageDelegate' 'WebExtension$Port' 'GeckoSession$PromptDelegate$PromptInstanceDelegate' 'WebExtensionController$AddonManagerDelegate' 'GeckoSessionSettings'; do
+          for c in 'WebExtension$PermissionPromptResponse' 'WebExtension' 'WebExtension$EnableSource' 'WebExtension$SessionController' 'GeckoSession' 'MediaSession$Metadata' 'MediaSession$ElementMetadata' 'WebExtension$InstallException$ErrorCodes'; do do
             f=org/mozilla/geckoview/$c.class; [ -f "$f" ] && javap -cp . "org.mozilla.geckoview.${c//\$/\$}" | grep -vE "^Compiled" ; done
