@@ -75,6 +75,8 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     var pip by mutableStateOf(false); private set
     var appLink by mutableStateOf<AppLinkAsk?>(null)
     var needNotifPermission by mutableStateOf(false)
+    /** Opens picture-in-picture now (set by the activity). */
+    var enterPip: (() -> Unit)? = null
     private var skipAppCheck: String? = null
     private val helperListener: (WebExtension) -> Unit = { ext -> tabs.forEach { bindHelper(it, ext) } }
     private val popupHost: () -> GeckoSession? = { newTab(open = false).session }
@@ -338,9 +340,11 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         t.session.webExtensionController.setMessageDelegate(ext, object : WebExtension.MessageDelegate {
             override fun onConnect(port: WebExtension.Port) {
                 t.ports += port
+                android.util.Log.i("Grove", "helper connected")
                 port.setDelegate(object : WebExtension.PortDelegate {
                     override fun onPortMessage(message: Any, port: WebExtension.Port) {
                         val m = message as? JSONObject ?: return
+                        if (m.optString("t") == "icon") Icons.hint(ctx, t.url, m.optString("h"))
                         if (m.optString("t") == "video") {
                             t.videoPlaying = m.optBoolean("playing")
                             if (m.optLong("w") > 0 && m.optLong("h") > 0) { t.videoW = m.optLong("w"); t.videoH = m.optLong("h") }

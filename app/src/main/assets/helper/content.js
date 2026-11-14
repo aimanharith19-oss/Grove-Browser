@@ -29,6 +29,17 @@
   };
   for (const ev of ["play", "playing", "pause", "ended", "emptied", "loadedmetadata"]) document.addEventListener(ev, report, true);
 
+  // Site icon for favorites (top frame only).
+  const icons = () => {
+    if (window !== window.top) return;
+    const l = [...document.querySelectorAll("link[rel~='icon' i], link[rel='apple-touch-icon' i], link[rel='apple-touch-icon-precomposed' i]")]
+      .map(e => ({ h: e.href, s: parseInt((e.getAttribute("sizes") || "0").split("x")[0]) || 0, a: /apple/i.test(e.rel) }))
+      .filter(i => i.h.startsWith("https://") && !/\.svg(\?|$)/i.test(i.h));
+    l.sort((x, y) => (y.a - x.a) || (y.s - x.s));
+    if (l.length) send({ t: "icon", h: l[0].h });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", icons, { once: true }); else icons();
+
   // Picture-in-picture: make the playing video fill the (small) window. Uses inline styles so page CSP can't block it.
   const FILL = { position: "fixed", inset: "0", width: "100vw", height: "100vh", "max-width": "none", "max-height": "none",
     "z-index": "2147483647", background: "#000", "object-fit": "contain", transform: "none", margin: "0" };

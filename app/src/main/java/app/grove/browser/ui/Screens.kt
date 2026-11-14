@@ -48,6 +48,9 @@ import app.grove.browser.Bookmark
 import app.grove.browser.BrowserVM
 import app.grove.browser.ENGINES
 import app.grove.browser.Gecko
+import app.grove.browser.Icons
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
 import app.grove.browser.Urls
 
 @Composable
@@ -61,6 +64,7 @@ fun Header(title: String) {
 @Composable
 fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Unit, onAdd: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
     LazyVerticalGrid(
         columns = GridCells.Adaptive(100.dp),
         modifier = Modifier.fillMaxSize().background(cs.background),
@@ -78,7 +82,10 @@ fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Un
         items(vm.bookmarks.items, key = { it.id }) { b ->
             Column(Modifier.combinedClickable(onClick = { onOpen(b.url) }, onLongClick = { onEdit(b) })) {
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).background(cs.primary).padding(8.dp)) {
-                    Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 40.sp,
+                    val icon = Icons.get(ctx, b.url)
+                    if (icon != null) Box(Modifier.size(56.dp).background(Color.White).align(Alignment.Center), contentAlignment = Alignment.Center) {
+                        Image(icon, null, Modifier.size(40.dp))
+                    } else Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 40.sp,
                         fontWeight = FontWeight.Light, modifier = Modifier.align(Alignment.Center))
                     Text(Urls.host(b.url), color = Color.White, fontSize = 10.sp, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart))
@@ -144,16 +151,24 @@ fun LinksScreen(
     onLong: ((Int) -> Unit)? = null, onClear: (() -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
     Column(Modifier.fillMaxSize().background(cs.background)) {
         Header(title)
         if (links.isEmpty()) Text("nothing here yet", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp))
         LazyColumn(Modifier.weight(1f)) {
             itemsIndexed(links) { i, (name, url) ->
-                Column(Modifier.fillMaxWidth().combinedClickable(onClick = { onOpen(url) }, onLongClick = { onLong?.invoke(i) })
-                    .padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(Modifier.fillMaxWidth().combinedClickable(onClick = { onOpen(url) }, onLongClick = { onLong?.invoke(i) })
+                    .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val icon = Icons.get(ctx, url)
+                Box(Modifier.size(36.dp).background(if (icon != null) Color.White else cs.primary), contentAlignment = Alignment.Center) {
+                    if (icon != null) Image(icon, null, Modifier.size(26.dp))
+                    else Text(name.ifBlank { Urls.host(url) }.take(1).uppercase(), color = Color.White, fontSize = 18.sp)
+                }
+                Column(Modifier.padding(start = 12.dp)) {
                     Text(name.ifBlank { Urls.host(url) }, fontSize = 20.sp, fontWeight = FontWeight.Light,
                         color = cs.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(url, fontSize = 12.sp, color = cs.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 }
             }
         }
@@ -209,8 +224,11 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         section("media")
         option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
         info("keeps any audio or video playing when you leave grove or turn off the screen")
-        option("picture in picture: " + if (p.pip == 1) "on" else "off", false) { p.pip = 1 - p.pip }
-        info("any playing video pops out into a small window when you go home")
+        Text("picture in picture", fontSize = 17.sp, color = cs.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+        listOf("any playing video, when you go home", "only full-screen video", "off (use ••• > picture in picture)").forEachIndexed { i, s ->
+            val mode = if (i == 2) 0 else i + 1
+            option(s, p.pip == mode) { p.pip = mode }
+        }
         section("favorites")
         option("back up favorites", false) { backup.launch("grove-favorites.json") }
         option("restore favorites", false) { restore.launch(arrayOf("*/*")) }

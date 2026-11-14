@@ -53,6 +53,7 @@ open class MainActivity : ComponentActivity() {
         vm.external = { intent, fallback ->
             runCatching { startActivity(intent) }.onFailure { if (fallback != null) vm.go(fallback) else vm.toast("no app can open this link") }
         }
+        vm.enterPip = { if (!isInPictureInPictureMode) runCatching { enterPictureInPictureMode(pipParams()) } }
         ready = true
         if (savedInstanceState == null && webApp == null) handleIntent(intent)
         setContent {
@@ -84,7 +85,16 @@ open class MainActivity : ComponentActivity() {
 
     // ---------- picture-in-picture ----------
 
-    private fun pipWanted() = ready && vm.prefs.pip == 1 && vm.cur?.videoPlaying == true
+    /** Settings: 0 off, 1 any playing video when going home, 2 only a full-screen video. */
+    private fun pipWanted(): Boolean {
+        val t = vm.cur ?: return false
+        val media = t.videoPlaying || t.playing
+        return ready && when (vm.prefs.pip) {
+            1 -> t.videoPlaying || (vm.fullscreen && t.playing)
+            2 -> vm.fullscreen && media
+            else -> false
+        }
+    }
 
     private fun pipParams(): PictureInPictureParams {
         val t = vm.cur
@@ -132,7 +142,7 @@ open class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         pendingFile?.let { (p, r) -> r.complete(p.dismiss()) }
         pendingFile = null
-        if (ready) { vm.filePicker = null; vm.external = null }
+        if (ready) { vm.filePicker = null; vm.external = null; vm.enterPip = null }
         super.onDestroy()
     }
 }

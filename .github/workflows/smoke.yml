@@ -39,6 +39,7 @@ jobs:
             grep -E " (I|W) Grove" logcat.txt | head -20 || true
             ! grep -q "FATAL EXCEPTION" logcat.txt
             grep -qE "uBO (installed|ready)" logcat.txt
+            grep -q "helper connected" logcat.txt
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: smoke-logs, path: "logcat.txt\nscreen.png" }

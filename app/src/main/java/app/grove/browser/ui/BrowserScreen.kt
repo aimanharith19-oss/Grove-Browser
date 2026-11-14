@@ -175,6 +175,7 @@ fun BrowserScreen(vm: BrowserVM) {
                     })
                     add(MenuItem("share page") { share(ctx, t.url) })
                     add(MenuItem("find on page") { find = true })
+                    if (t.videoPlaying || t.playing) add(MenuItem("picture in picture") { vm.enterPip?.invoke() })
                     add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
                     if (Urls.isWeb(t.url)) {
                         if (t.manifest != null) add(MenuItem("install app") { vm.installWebApp(t) })
