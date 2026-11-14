@@ -6,7 +6,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import app.grove.browser.Gecko
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,7 +81,7 @@ import app.grove.browser.Urls
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
 
-enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS }
+enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS }
 
 class MenuItem(val label: String, val action: () -> Unit)
 
@@ -94,6 +98,13 @@ fun BrowserScreen(vm: BrowserVM) {
     var find by remember { mutableStateOf(false) }
     var editBm by remember { mutableStateOf<Bookmark?>(null) }
 
+    val standalone = vm.webApp != null
+    val immersive = vm.fullscreen || vm.pip
+    val notif = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(vm.needNotifPermission) {
+        if (vm.needNotifPermission) { vm.needNotifPermission = false; runCatching { notif.launch(Manifest.permission.POST_NOTIFICATIONS) } }
+    }
+
     BackHandler {
         when {
             vm.fullscreen -> t.session.exitFullScreen()
@@ -102,6 +113,7 @@ fun BrowserScreen(vm: BrowserVM) {
             find -> { find = false; t.session.finder.clear() }
             overlay != Overlay.NONE -> overlay = Overlay.NONE
             t.canBack -> t.session.goBack()
+            standalone -> activity.finish()
             t.parent != null || (t.home && vm.tabs.size > 1) -> vm.closeTab(t)
             else -> activity.moveTaskToBack(true)
         }
@@ -119,12 +131,20 @@ fun BrowserScreen(vm: BrowserVM) {
     val bg = MaterialTheme.colorScheme.background
     Column(
         Modifier.fillMaxSize().background(bg)
-            .then(if (vm.fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
+            .then(if (immersive) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
     ) {
-        if (find && !vm.fullscreen && overlay == Overlay.NONE) FindBar(t.session) { find = false }
+        if (find && !immersive && overlay == Overlay.NONE) FindBar(t.session) { find = false }
+        if (standalone && !immersive && vm.webAppHost != null && !t.home && Urls.host(t.url) != vm.webAppHost) {
+            Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(Urls.host(t.url), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), maxLines = 1)
+                Text("✕", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.clickable { if (t.canBack) t.session.goBack() else activity.finish() }.padding(4.dp))
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GeckoHost(t.session)
-            if (t.home) HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
+            if (t.home && !standalone) HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
                 onAdd = { editBm = Bookmark(System.currentTimeMillis(), "", "") })
             if (editing && query.isNotBlank()) Suggestions(vm, query) { vm.go(it); focus.clearFocus() }
             when (overlay) {
@@ -133,11 +153,16 @@ fun BrowserScreen(vm: BrowserVM) {
                     onOpen = { vm.go(it); overlay = Overlay.NONE }, onLong = { editBm = vm.bookmarks.items[it] })
                 Overlay.RECENT -> LinksScreen("recent", vm.history.items.asReversed().map { it.title to it.url },
                     onOpen = { vm.go(it); overlay = Overlay.NONE }, onClear = { vm.clearHistory() })
-                Overlay.SETTINGS -> SettingsScreen(vm) { overlay = Overlay.NONE }
+                Overlay.SETTINGS -> SettingsScreen(vm, onAddons = { overlay = Overlay.ADDONS }) { overlay = Overlay.NONE }
+                Overlay.ADDONS -> AddonsScreen(vm) { overlay = Overlay.NONE }
                 Overlay.NONE -> {}
             }
         }
-        if (!vm.fullscreen && overlay == Overlay.NONE) {
+        if (standalone && !immersive && t.progress in 1..99) LinearProgressIndicator(
+            progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
+        )
+        if (!immersive && !standalone && overlay == Overlay.NONE) {
             val items = buildList {
                 add(MenuItem("tabs") { overlay = Overlay.TABS })
                 add(MenuItem("new inprivate tab") { vm.newTab(private = true) })
@@ -151,9 +176,16 @@ fun BrowserScreen(vm: BrowserVM) {
                     add(MenuItem("share page") { share(ctx, t.url) })
                     add(MenuItem("find on page") { find = true })
                     add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
-                    if (Urls.isWeb(t.url)) add(MenuItem("pin to start") { pin(ctx, t) })
+                    if (Urls.isWeb(t.url)) {
+                        if (t.manifest != null) add(MenuItem("install app") { vm.installWebApp(t) })
+                        add(MenuItem("pin to start") { pin(ctx, t) })
+                    }
                 }
-                add(MenuItem("ublock origin") { vm.openUblock() })
+                // toolbar buttons of add-ons (uBlock Origin etc.) open their popup
+                Gecko.addons.filter { it.metaData.enabled && Gecko.actions.containsKey(it.id) }.forEach { e ->
+                    add(MenuItem((e.metaData.name ?: e.id).lowercase()) { Gecko.actions[e.id]?.click() })
+                }
+                add(MenuItem("extensions") { overlay = Overlay.ADDONS })
                 add(MenuItem("settings") { overlay = Overlay.SETTINGS })
             }
             AppBar(vm, t, editing, menu, items,
@@ -167,6 +199,8 @@ fun BrowserScreen(vm: BrowserVM) {
 
     PromptDialog(vm)
     ContextMenuDialog(vm)
+    InstallAddonDialog()
+    AppLinkDialog(vm)
     editBm?.let { b ->
         BookmarkDialog(b, isNew = vm.bookmarks.items.none { it.id == b.id },
             onSave = { vm.saveBookmark(it); editBm = null },

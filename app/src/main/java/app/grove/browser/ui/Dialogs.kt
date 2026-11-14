@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.grove.browser.Bookmark
 import app.grove.browser.BrowserVM
+import app.grove.browser.Gecko
 import org.mozilla.geckoview.GeckoSession.ContentDelegate.ContextElement
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.AlertPrompt
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.ButtonPrompt
@@ -179,4 +180,37 @@ fun CrashScreen(text: String, onContinue: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun InstallAddonDialog() {
+    val a = Gecko.installAsk ?: return
+    var privateTabs by remember(a) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { Gecko.answerInstall(false, false) },
+        title = { Text("add ${a.ext.metaData.name ?: "add-on"}?") },
+        text = {
+            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                Text(if (a.permissions.isEmpty()) "it needs no special permissions." else "it will be able to:", fontSize = 14.sp)
+                a.permissions.forEach { Text("• $it", fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp)) }
+                Text((if (privateTabs) "☑" else "☐") + " also run in inprivate tabs", fontSize = 15.sp,
+                    modifier = Modifier.fillMaxWidth().clickable { privateTabs = !privateTabs }.padding(top = 12.dp, bottom = 4.dp))
+                Text("it is never allowed to send usage data.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton({ Gecko.answerInstall(true, privateTabs) }) { Text("add") } },
+        dismissButton = { TextButton({ Gecko.answerInstall(false, false) }) { Text("cancel") } },
+    )
+}
+
+@Composable
+fun AppLinkDialog(vm: BrowserVM) {
+    val a = vm.appLink ?: return
+    AlertDialog(
+        onDismissRequest = { vm.answerAppLink(false) },
+        title = { Text("open in ${a.label}?") },
+        text = { Text(a.url, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) },
+        confirmButton = { TextButton({ vm.answerAppLink(true) }) { Text("open app") } },
+        dismissButton = { TextButton({ vm.answerAppLink(false) }) { Text("stay in grove") } },
+    )
 }

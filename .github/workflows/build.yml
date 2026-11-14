@@ -17,10 +17,8 @@ jobs:
         run: |
           url=$(gh api repos/gorhill/uBlock/releases --jq '[.[] | select(.prerelease|not) | .assets[] | select(.name|endswith(".firefox.signed.xpi"))][0].browser_download_url')
           echo "uBO: $url"
-          curl -fsSL "$url" -o ubo.xpi
-          d=app/src/main/assets/extensions/ublock
-          mkdir -p $d && unzip -q -o ubo.xpi -d $d && rm -rf $d/META-INF
-          test -f $d/manifest.json
+          curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
+          unzip -tq app/src/main/assets/ubo.xpi
       - run: gradle assembleRelease --stacktrace
       - name: APK size report
         run: |

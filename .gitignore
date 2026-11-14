@@ -4,3 +4,4 @@ local.properties
 .idea/
 *.iml
 app/src/main/assets/extensions/
+app/src/main/assets/ubo.xpi

@@ -1,5 +1,7 @@
 package app.grove.browser.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items as listItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import app.grove.browser.Bookmark
 import app.grove.browser.BrowserVM
 import app.grove.browser.ENGINES
+import app.grove.browser.Gecko
 import app.grove.browser.Urls
 
 @Composable
@@ -160,11 +164,13 @@ fun LinksScreen(
 }
 
 @Composable
-fun SettingsScreen(vm: BrowserVM, onClose: () -> Unit) {
+fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
     val p = vm.prefs
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     var confirmClear by remember { mutableStateOf(false) }
+    val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { it?.let(vm::exportBookmarks) }
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::importBookmarks) }
     val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
 
     @Composable fun section(s: String) =
@@ -192,11 +198,28 @@ fun SettingsScreen(vm: BrowserVM, onClose: () -> Unit) {
                 }
             }
         }
+        section("secure connections (https)")
+        listOf("https first (recommended)", "https only: warn before any http page", "allow http").forEachIndexed { i, s ->
+            option(s, p.https == i) { p.https = i; Gecko.setHttps(i) }
+        }
+        info("switching between \"first\" and \"allow http\" applies after grove restarts")
+        section("open links in apps")
+        listOf("ask", "always", "never").forEachIndexed { i, s -> option(s, p.appLinks == i) { p.appLinks = i } }
+        info("e.g. youtube.com links can open the youtube app")
+        section("media")
+        option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
+        info("keeps any audio or video playing when you leave grove or turn off the screen")
+        option("picture in picture: " + if (p.pip == 1) "on" else "off", false) { p.pip = 1 - p.pip }
+        info("any playing video pops out into a small window when you go home")
+        section("favorites")
+        option("back up favorites", false) { backup.launch("grove-favorites.json") }
+        option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
+        info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
         section("privacy")
-        info("tracking protection: strict · cookies isolated per site · https first")
-        info("ads, trackers, scam, phishing and crypto-mining sites blocked by built-in ublock origin")
+        info("tracking protection: strict · cookies isolated per site")
+        info("ads, trackers, scam, phishing and crypto-mining sites blocked by ublock origin")
         info("no telemetry, no studies or remote experiments, no ai, no vpn, no sponsored content")
-        option("ublock origin settings", false) { vm.openUblock(); onClose() }
+        option("extensions (ublock origin, firefox add-ons)", false) { onAddons() }
         option("delete history and site data", false) { confirmClear = true }
         section("about")
         info("grove browser $version · gecko engine")
@@ -209,4 +232,31 @@ fun SettingsScreen(vm: BrowserVM, onClose: () -> Unit) {
         confirmButton = { TextButton({ vm.clearData(); confirmClear = false }) { Text("delete") } },
         dismissButton = { TextButton({ confirmClear = false }) { Text("cancel") } },
     )
+}
+
+@Composable
+fun AddonsScreen(vm: BrowserVM, onClose: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize().background(cs.background)) {
+        Header("extensions")
+        if (Gecko.addons.isEmpty()) Text("no extensions yet", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        LazyColumn(Modifier.weight(1f)) {
+            listItems(Gecko.addons.toList(), key = { it.id }) { e ->
+                val m = e.metaData
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text((m.name ?: e.id).lowercase(), fontSize = 22.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
+                    Text("version ${m.version} · " + if (m.enabled) "on" else "off", fontSize = 12.sp, color = cs.primary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        Text(if (m.enabled) "turn off" else "turn on", color = cs.onBackground,
+                            modifier = Modifier.clickable { Gecko.setEnabled(e, !m.enabled) }.padding(vertical = 6.dp))
+                        if (m.enabled && m.optionsPageUrl != null) Text("settings", color = cs.onBackground,
+                            modifier = Modifier.clickable { vm.openOptions(e); onClose() }.padding(vertical = 6.dp))
+                        Text("remove", color = cs.onBackground, modifier = Modifier.clickable { Gecko.remove(e) }.padding(vertical = 6.dp))
+                    }
+                }
+            }
+        }
+        Text("get firefox add-ons", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.fillMaxWidth()
+            .background(cs.surfaceVariant).clickable { vm.newTab("https://addons.mozilla.org/android/"); onClose() }.padding(16.dp))
+    }
 }

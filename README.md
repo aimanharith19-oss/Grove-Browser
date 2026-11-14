@@ -4,7 +4,14 @@ A light, private Android browser with a Windows Phone-style interface, running o
 
 - **Windows Phone IE look**: address bar at the bottom, tab counter, `•••` menu with lowercase items, square accent tiles, 20 WP accent colours, dark or light theme
 - **Home screen = all your favorites** as speed-dial tiles (Vivaldi-style). Long-press a tile to edit it.
-- **uBlock Origin built in**, not an add-on. It blocks ads, trackers, malware, scam and crypto-mining sites.
+- **uBlock Origin included**: the official Mozilla-signed release is installed on first launch and blocks ads, trackers, malware, scam and crypto-mining sites. Its popup is in the `•••` menu.
+- **Firefox add-ons**: install any add-on from addons.mozilla.org (`•••` → extensions → get firefox add-ons). Each one asks before getting permissions and is never allowed to send usage data.
+- **HTTPS options**: HTTPS-First (default), HTTPS-Only, or allow HTTP
+- **Open links in apps**: ask, always, or never (e.g. youtube.com → YouTube app)
+- **Web apps (PWA)**: `•••` → install app puts a site on your home screen as its own app window
+- **Picture-in-picture for any video**: going home while a video plays pops it into a floating window
+- **Background play for any media**: audio and video keep playing with Grove in the background, with lock-screen and headset controls
+- **Back up and restore favorites**: also imports bookmark files from Firefox, Chrome, Vivaldi and others
 - **Removed**: telemetry and data collection, studies and remote experiments ("remote improvements"), Firefox AI features, VPN, sponsored shortcuts, Pocket and Mozilla accounts
 - **Hardened**: strict tracking protection, cookies isolated per site, HTTPS-First, tracking parameters stripped from links (utm_, fbclid, gclid…), Global Privacy Control, pop-up blocking, autoplay blocked, WebRTC IP-leak protection, no link prefetching, camera, mic, location and notifications denied
 - **Safety fixes**: pages can't launch apps without a tap, can't target private app components through `intent:` links, and can't spam dialogs from background tabs. Other apps can only send http(s) links.

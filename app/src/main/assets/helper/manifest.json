@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "Grove helper",
+  "version": "1.0",
+  "description": "Picture-in-picture and background play for Grove Browser.",
+  "browser_specific_settings": { "gecko": { "id": "helper@grove.browser" } },
+  "permissions": ["nativeMessaging", "nativeMessagingFromContent", "geckoViewAddons"],
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_start",
+    "all_frames": true
+  }]
+}

@@ -13,8 +13,8 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           url=$(gh api repos/gorhill/uBlock/releases --jq '[.[] | select(.prerelease|not) | .assets[] | select(.name|endswith(".firefox.signed.xpi"))][0].browser_download_url')
-          curl -fsSL "$url" -o ubo.xpi
-          d=app/src/main/assets/extensions/ublock; mkdir -p $d && unzip -q -o ubo.xpi -d $d && rm -rf $d/META-INF
+          curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
+          unzip -tq app/src/main/assets/ubo.xpi
       - run: gradle assembleRelease
       - name: Enable KVM
         run: |
@@ -36,7 +36,9 @@ jobs:
             adb logcat -d > logcat.txt || true
             adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screen.png || true
             grep -n -A40 -E "FATAL EXCEPTION|AndroidRuntime" logcat.txt | head -120 || true
+            grep -E " (I|W) Grove" logcat.txt | head -20 || true
             ! grep -q "FATAL EXCEPTION" logcat.txt
+            grep -qE "uBO (installed|ready)" logcat.txt
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: smoke-logs, path: "logcat.txt\nscreen.png" }

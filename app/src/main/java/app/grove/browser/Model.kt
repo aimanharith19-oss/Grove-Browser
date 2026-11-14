@@ -10,8 +10,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
+import android.text.Html
 import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.MediaSession
+import org.mozilla.geckoview.WebExtension
 import java.io.File
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KProperty
 
 data class Bookmark(val id: Long, val title: String, val url: String)
 data class Visit(val title: String, val url: String, val time: Long)
@@ -26,6 +31,17 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var desktop by mutableStateOf(false)
     /** URL is known but not loaded yet (restored or killed in background). Loads on select. */
     var pending = false
+    // media
+    var media: MediaSession? = null
+    var playing by mutableStateOf(false)
+    var mediaTitle = ""
+    var videoPlaying by mutableStateOf(false)
+    var videoW = 16L
+    var videoH = 9L
+    /** Connections to the Grove helper script in this tab's frames (picture-in-picture, background play). */
+    val ports = mutableListOf<WebExtension.Port>()
+    /** Web app manifest of the current page, if it has one (PWA). */
+    var manifest by mutableStateOf<JSONObject?>(null)
     val home get() = url.isBlank() || url == "about:blank"
 }
 
@@ -61,15 +77,49 @@ val ENGINES = listOf(
     "Bing" to "https://www.bing.com/search?q=%s",
 )
 
+private class IntPref(private val sp: SharedPreferences, private val key: String, def: Int) : ReadWriteProperty<Any?, Int> {
+    private val s = mutableIntStateOf(sp.getInt(key, def))
+    override fun getValue(thisRef: Any?, property: KProperty<*>) = s.intValue
+    override fun setValue(thisRef: Any?, property: KProperty<*>, value: Int) { s.intValue = value; sp.edit().putInt(key, value).apply() }
+}
+
 class Prefs(ctx: Context) {
     val sp: SharedPreferences = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE)
-    private val e = mutableIntStateOf(sp.getInt("engine", 0))
-    private val t = mutableIntStateOf(sp.getInt("theme", 0))
-    private val a = mutableIntStateOf(sp.getInt("accent", 2))
-    var engine: Int get() = e.intValue; set(v) { e.intValue = v; sp.edit().putInt("engine", v).apply() }
-    var theme: Int get() = t.intValue; set(v) { t.intValue = v; sp.edit().putInt("theme", v).apply() }
-    var accent: Int get() = a.intValue; set(v) { a.intValue = v; sp.edit().putInt("accent", v).apply() }
+    var engine by IntPref(sp, "engine", 0)
+    var theme by IntPref(sp, "theme", 0)
+    var accent by IntPref(sp, "accent", 2)
+    /** 0 = HTTPS-First, 1 = HTTPS-Only, 2 = allow HTTP */
+    var https by IntPref(sp, "https", 0)
+    /** 0 = ask, 1 = always open in the app, 2 = never */
+    var appLinks by IntPref(sp, "appLinks", 0)
+    var bgPlay by IntPref(sp, "bgPlay", 1)
+    var pip by IntPref(sp, "pip", 1)
     val engineUrl get() = ENGINES.getOrElse(engine) { ENGINES[0] }.second
+}
+
+/** Reads favorites from a Grove/Firefox/Chrome JSON backup or any browser's exported bookmarks .html file. */
+fun parseBookmarks(text: String): List<Pair<String, String>> {
+    val out = ArrayList<Pair<String, String>>()
+    val t = text.trimStart()
+    if (t.startsWith("{") || t.startsWith("[")) {
+        fun walk(o: Any?) {
+            when (o) {
+                is JSONArray -> for (i in 0 until o.length()) walk(o.opt(i))
+                is JSONObject -> {
+                    val u = o.optString("url").ifEmpty { o.optString("uri") }
+                    if (u.startsWith("http")) out += o.optString("title").ifEmpty { o.optString("name") } to u
+                    o.keys().forEach { k -> o.opt(k).let { v -> if (v is JSONArray || v is JSONObject) walk(v) } }
+                }
+            }
+        }
+        runCatching { walk(if (t.startsWith("[")) JSONArray(t) else JSONObject(t)) }
+        return out
+    }
+    Regex("<a\\s[^>]*href\\s*=\\s*\"([^\"]+)\"[^>]*>(.*?)</a>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .findAll(text).forEach { m ->
+            out += Html.fromHtml(m.groupValues[2], 0).toString().trim() to Html.fromHtml(m.groupValues[1], 0).toString()
+        }
+    return out
 }
 
 object Urls {
