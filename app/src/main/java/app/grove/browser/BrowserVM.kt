@@ -72,7 +72,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     var contextMenu by mutableStateOf<Pair<Tab, ContextElement>?>(null)
     var filePicker: ((FilePrompt, GeckoResult<PromptResponse>) -> Unit)? = null
     var external: ((Intent, String?) -> Unit)? = null
-    var pip by mutableStateOf(false)
+    var pip by mutableStateOf(false); private set
     var appLink by mutableStateOf<AppLinkAsk?>(null)
     var needNotifPermission by mutableStateOf(false)
     private var skipAppCheck: String? = null
@@ -191,7 +191,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     }
 
     /** Picture-in-picture window opened/closed: the playing video fills it. */
-    fun setPip(on: Boolean) {
+    fun pipMode(on: Boolean) {
         pip = on
         cur?.ports?.forEach { runCatching { it.postMessage(JSONObject().put("pip", on)) } }
     }

@@ -104,7 +104,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (ready) vm.setPip(isInPictureInPictureMode)
+        if (ready) vm.pipMode(isInPictureInPictureMode)
     }
 
     /** Only http(s) links are accepted from other apps (blocks file:, javascript:, content: tricks). */
