@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    override fun onStart() { super.onStart(); if (ready) vm.foreground(true) }
+    override fun onStart() { super.onStart(); if (ready) { vm.bookmarks.reload(); vm.history.reload(); vm.foreground(true) } }
 
     override fun onStop() {
         super.onStop()

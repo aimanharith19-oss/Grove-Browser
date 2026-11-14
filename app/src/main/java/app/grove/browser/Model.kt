@@ -30,12 +30,21 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
 }
 
 /** Tiny JSON-file backed list (bookmarks, history). */
-class JsonList<T>(private val file: File, read: (JSONObject) -> T, private val write: (T) -> JSONObject) {
+class JsonList<T>(private val file: File, private val read: (JSONObject) -> T, private val write: (T) -> JSONObject) {
     val items = mutableStateListOf<T>()
     init {
         runCatching {
             val a = JSONArray(file.readText())
             for (i in 0 until a.length()) items += read(a.getJSONObject(i))
+        }
+    }
+    /** Picks up changes written by the launcher link while the browser was in the background. */
+    fun reload() {
+        runCatching {
+            val a = JSONArray(file.readText())
+            val n = ArrayList<T>()
+            for (i in 0 until a.length()) n += read(a.getJSONObject(i))
+            items.clear(); items.addAll(n)
         }
     }
     fun save() {

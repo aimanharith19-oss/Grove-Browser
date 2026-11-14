@@ -8,6 +8,7 @@ A light, private Android browser with a Windows Phone-style interface, running o
 - **Removed**: telemetry and data collection, studies and remote experiments ("remote improvements"), Firefox AI features, VPN, sponsored shortcuts, Pocket and Mozilla accounts
 - **Hardened**: strict tracking protection, cookies isolated per site, HTTPS-First, tracking parameters stripped from links (utm_, fbclid, gclid…), Global Privacy Control, pop-up blocking, autoplay blocked, WebRTC IP-leak protection, no link prefetching, camera, mic, location and notifications denied
 - **Safety fixes**: pages can't launch apps without a tap, can't target private app components through `intent:` links, and can't spam dialogs from background tabs. Other apps can only send http(s) links.
+- **Linked with Grove Launcher**: bookmarks and history are shared both ways with Grove Launcher on the same phone (only that app is allowed, nothing is deleted, nothing leaves the phone)
 - **Light**: one APK per CPU type, R8 shrinking, compressed native libraries, background tabs paused, restored tabs load only when opened
 
 ## Download
