@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import app.grove.browser.ui.BrowserScreen
+import app.grove.browser.ui.CrashScreen
 import app.grove.browser.ui.GroveTheme
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.FilePrompt
@@ -17,6 +18,7 @@ import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse
 
 class MainActivity : ComponentActivity() {
     private val vm: BrowserVM by viewModels()
+    private var ready = false
     private var pendingFile: Pair<FilePrompt, GeckoResult<PromptResponse>>? = null
     private val pickOne = registerForActivityResult(ActivityResultContracts.OpenDocument()) { finishFile(listOfNotNull(it)) }
     private val pickMany = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { finishFile(it) }
@@ -24,6 +26,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val crash = GroveApp.crashFile(application)
+        if (crash.exists()) {
+            val text = crash.readText()
+            crash.delete()
+            setContent { CrashScreen(text) { recreate() } }
+            return
+        }
         vm.filePicker = { p, r ->
             pendingFile?.let { (op, or) -> or.complete(op.dismiss()) }
             pendingFile = p to r
@@ -34,6 +43,7 @@ class MainActivity : ComponentActivity() {
         vm.external = { intent, fallback ->
             runCatching { startActivity(intent) }.onFailure { if (fallback != null) vm.go(fallback) else vm.toast("no app can open this link") }
         }
+        ready = true
         if (savedInstanceState == null) handleIntent(intent)
         setContent { GroveTheme(vm.prefs) { BrowserScreen(vm) } }
     }
@@ -57,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
     /** Only http(s) links are accepted from other apps (blocks file:, javascript:, content: tricks). */
     private fun handleIntent(i: Intent?) {
+        if (!ready) return
         val url = when (i?.action) {
             Intent.ACTION_VIEW -> i.dataString?.takeIf { Urls.isWeb(it) }?.let { Urls.clean(it) }
             Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)?.let { txt ->
@@ -68,19 +79,18 @@ class MainActivity : ComponentActivity() {
         if (!url.isNullOrBlank()) vm.openUrl(url)
     }
 
-    override fun onStart() { super.onStart(); vm.foreground(true) }
+
+    override fun onStart() { super.onStart(); if (ready) vm.foreground(true) }
 
     override fun onStop() {
         super.onStop()
-        vm.foreground(false)
-        vm.save()
+        if (ready) { vm.foreground(false); vm.save() }
     }
 
     override fun onDestroy() {
         pendingFile?.let { (p, r) -> r.complete(p.dismiss()) }
         pendingFile = null
-        vm.filePicker = null
-        vm.external = null
+        if (ready) { vm.filePicker = null; vm.external = null }
         super.onDestroy()
     }
 }

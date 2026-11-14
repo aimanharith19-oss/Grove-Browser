@@ -1,6 +1,13 @@
 package app.grove.browser.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -152,4 +159,24 @@ fun BookmarkDialog(b: Bookmark, isNew: Boolean, onSave: (Bookmark) -> Unit, onDe
             if (isNew) TextButton(onDismiss) { Text("cancel") } else TextButton(onDelete) { Text("delete") }
         },
     )
+}
+
+@Composable
+fun CrashScreen(text: String, onContinue: () -> Unit) {
+    val ctx = LocalContext.current
+    GroveTheme(app.grove.browser.Prefs(ctx)) {
+        val cs = MaterialTheme.colorScheme
+        Column(Modifier.fillMaxSize().background(cs.background).windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp)) {
+            Text("grove crashed", fontSize = 40.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
+            Text("copy this and send it so it can be fixed. it stays on your phone unless you share it.",
+                color = cs.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+            Text(text, fontSize = 11.sp, color = cs.onBackground,
+                modifier = Modifier.weight(1f).fillMaxWidth().background(cs.surfaceVariant)
+                    .verticalScroll(rememberScrollState()).padding(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                TextButton({ copy(ctx, text) }) { Text("copy") }
+                TextButton(onContinue) { Text("open grove") }
+            }
+        }
+    }
 }
