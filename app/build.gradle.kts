@@ -36,6 +36,7 @@ android {
     // Compressed native libs = much smaller download.
     packaging {
         jniLibs { useLegacyPackaging = true }
+        dex { useLegacyPackaging = true }
         resources { excludes += setOf("META-INF/*.version", "META-INF/*.kotlin_module", "kotlin/**", "DebugProbesKt.bin") }
     }
     compileOptions {
