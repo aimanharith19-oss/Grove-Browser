@@ -22,7 +22,11 @@ jobs:
           mkdir -p $d && unzip -q -o ubo.xpi -d $d && rm -rf $d/META-INF
           test -f $d/manifest.json
       - run: gradle assembleRelease --stacktrace
-      - run: ls -la app/build/outputs/apk/release/
+      - name: APK size report
+        run: |
+          ls -la app/build/outputs/apk/release/
+          unzip -v app/build/outputs/apk/release/app-arm64-v8a-release.apk | sort -k3 -n | tail -12
+          unzip -v app/build/outputs/apk/release/app-arm64-v8a-release.apk | awk '{s+=$3} /assets\/extensions/ {u+=$3} END {print "uBO bytes:", u}'
       - uses: actions/upload-artifact@v4
         with: { name: grove-browser, path: app/build/outputs/apk/release/*.apk }
       - if: startsWith(github.ref, 'refs/tags/')
