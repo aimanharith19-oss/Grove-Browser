@@ -19,7 +19,12 @@ jobs:
           echo "uBO: $url"
           curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
           unzip -tq app/src/main/assets/ubo.xpi
+      - name: Signing key
+        env: { KS: "${{ secrets.GROVE_KEYSTORE }}" }
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > $RUNNER_TEMP/grove.jks; echo "GROVE_KEYSTORE_FILE=$RUNNER_TEMP/grove.jks" >> $GITHUB_ENV; echo "signing with Grove key"; else echo "no GROVE_KEYSTORE secret: debug key"; fi
       - run: gradle assembleRelease --stacktrace
+        env: { GROVE_KS_PASS: "${{ secrets.GROVE_KS_PASS }}" }
       - name: APK size report
         run: |
           ls -la app/build/outputs/apk/release/

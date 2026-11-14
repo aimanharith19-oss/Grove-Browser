@@ -25,12 +25,22 @@ android {
             isUniversalApk = false
         }
     }
+    // Same signing key for every build (from the repo secrets), so updates install over the old app.
+    val ks = System.getenv("GROVE_KEYSTORE_FILE")
+    signingConfigs {
+        if (ks != null && file(ks).exists()) create("grove") {
+            storeFile = file(ks)
+            storePassword = System.getenv("GROVE_KS_PASS")
+            keyAlias = "grove"
+            keyPassword = System.getenv("GROVE_KS_PASS")
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("grove") ?: signingConfigs.getByName("debug")
         }
     }
     // Compressed native libs = much smaller download.
