@@ -23,6 +23,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -96,7 +98,7 @@ import app.grove.browser.Urls
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
 
-enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS }
+enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS, SAVED }
 
 class MenuItem(val label: String, val action: () -> Unit)
 
@@ -134,9 +136,11 @@ fun BrowserScreen(vm: BrowserVM) {
         }
     }
 
-    LaunchedEffect(vm.fullscreen) {
+    // Full screen: Android's status bar and navigation bar are hidden (swipe from the edge to peek at them).
+    val hideBars = vm.fullscreen || (vm.prefs.immersive == 1 && !standalone)
+    LaunchedEffect(hideBars) {
         WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-            if (vm.fullscreen) {
+            if (hideBars) {
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 hide(WindowInsetsCompat.Type.systemBars())
             } else show(WindowInsetsCompat.Type.systemBars())
@@ -155,7 +159,11 @@ fun BrowserScreen(vm: BrowserVM) {
     }
     Column(
         Modifier.fillMaxSize().background(edge)
-            .then(if (immersive) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
+            .then(when {
+                immersive -> Modifier
+                hideBars -> Modifier.windowInsetsPadding(WindowInsets.ime) // edge to edge; only the keyboard pushes things up
+                else -> Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+            })
     ) {
         if (find && !immersive && overlay == Overlay.NONE) FindBar(t.session) { find = false }
         if (standalone && !immersive && vm.webAppHost != null && !t.home && Urls.host(t.url) != vm.webAppHost) {
@@ -174,6 +182,7 @@ fun BrowserScreen(vm: BrowserVM) {
                 add(MenuItem("new inprivate tab") { vm.newTab(private = true) })
                 add(MenuItem("recent") { overlay = Overlay.RECENT })
                 add(MenuItem("favorites") { overlay = Overlay.FAVORITES })
+                if (vm.saved.items.isNotEmpty()) add(MenuItem("saved pages") { overlay = Overlay.SAVED })
                 if (!t.home) {
                     val existing = vm.bookmarks.items.firstOrNull { it.url == t.url }
                     add(MenuItem(if (existing != null) "edit favorite" else "add to favorites") {
@@ -182,6 +191,9 @@ fun BrowserScreen(vm: BrowserVM) {
                     add(MenuItem("share page") { share(ctx, t.url) })
                     add(MenuItem("find on page") { find = true })
                     if (Urls.isWeb(t.url)) {
+                        if (menu && t.trackers > 0) add(MenuItem("${t.trackers} trackers blocked here") { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
+                        add(MenuItem("reader view") { vm.reader(t, "view") })
+                        add(MenuItem("save for offline reading") { vm.reader(t, "save") })
                         add(MenuItem("save as pdf") { vm.savePdf(t) })
                         add(MenuItem("print") { vm.print(t) })
                     }
@@ -207,6 +219,7 @@ fun BrowserScreen(vm: BrowserVM) {
         if (barTop) bar()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GeckoHost(vm, t.session)
+            PullIndicator(vm)
             // Home fades in and out; screens slide up a little as they appear (Windows Phone motion).
             androidx.compose.animation.AnimatedVisibility(visible = t.home && !standalone, enter = fadeIn(wp(260)), exit = fadeOut(wp(140))) {
                 HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
@@ -224,6 +237,9 @@ fun BrowserScreen(vm: BrowserVM) {
                         onOpen = { vm.go(it); overlay = Overlay.NONE }, onClear = { vm.clearHistory() })
                     Overlay.SETTINGS -> SettingsScreen(vm, onAddons = { overlay = Overlay.ADDONS }) { overlay = Overlay.NONE }
                     Overlay.ADDONS -> AddonsScreen(vm) { overlay = Overlay.NONE }
+                    Overlay.SAVED -> LinksScreen("saved pages", vm.saved.items.map { it.title to it.url },
+                        onOpen = { u -> vm.saved.items.firstOrNull { it.url == u }?.let { vm.openSaved(it) }; overlay = Overlay.NONE },
+                        onLong = { i -> vm.saved.items.getOrNull(i)?.let { vm.deleteSaved(it); vm.toast("removed") } })
                     Overlay.NONE -> Box(Modifier.fillMaxSize())
                 }
             }
@@ -248,15 +264,33 @@ fun BrowserScreen(vm: BrowserVM) {
     }
 }
 
+/** Pull to refresh: a line grows across the top as you pull; let go at full width to reload. (Its own function, so pulling redraws only this.) */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.PullIndicator(vm: BrowserVM) {
+    val p = vm.pull
+    if (p < 0f) return
+    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(4.dp)
+        .graphicsLayer { scaleX = p.coerceIn(0f, 1f); alpha = 0.5f + p.coerceIn(0f, 1f) / 2 }
+        .background(MaterialTheme.colorScheme.primary))
+    if (p >= 1f) Text("release to refresh", color = Color.White, fontSize = 13.sp,
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp).background(MaterialTheme.colorScheme.primary).padding(horizontal = 10.dp, vertical = 4.dp))
+}
+
 @Composable
 private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
     AndroidView(
         // TextureView rendering: no black flashes or misplaced pages under Grove's menus and overlays.
         factory = { c ->
-            GeckoView(c).apply {
-                setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+            GroveGeckoView(c).apply {
+                // Texture rendering avoids flashes under Grove's menus; surface rendering is lighter for video (your choice in settings).
+                setViewBackend(if (vm.prefs.surface == 1) GeckoView.BACKEND_SURFACE_VIEW else GeckoView.BACKEND_TEXTURE_VIEW)
+                // Android autofill (password managers such as Grove Vault) can see and fill web forms.
+                setAutofillEnabled(true)
+                importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                 val v = this
                 vm.capture = { runCatching { v.capturePixels() }.getOrNull() } // screenshots for tab previews and home tiles
+                onPull = { p -> vm.pull = p }
+                onRefresh = { vm.cur?.session?.reload() }
             }
         },
         update = { v ->
@@ -353,7 +387,7 @@ private fun AddressBox(
     onGo: (String) -> Unit, modifier: Modifier,
 ) {
     var tf by remember { mutableStateOf(TextFieldValue("")) }
-    val shown = if (editing) tf else TextFieldValue(if (t.home) "" else Urls.host(t.url))
+    val shown = if (editing) tf else TextFieldValue(if (t.home) "" else Urls.label(t.url))
     BasicTextField(
         value = shown,
         onValueChange = { if (editing) { tf = it; onQuery(it.text) } },

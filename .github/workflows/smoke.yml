@@ -15,6 +15,12 @@ jobs:
           url=$(gh api repos/gorhill/uBlock/releases --jq '[.[] | select(.prerelease|not) | .assets[] | select(.name|endswith(".firefox.signed.xpi"))][0].browser_download_url')
           curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
           unzip -tq app/src/main/assets/ubo.xpi
+      - name: Bundle Readability (reader view)
+        run: |
+          npm pack @mozilla/readability@0.6.0 --silent
+          tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > app/src/main/assets/helper/Readability.js
+          rm mozilla-readability-0.6.0.tgz
+          test -s app/src/main/assets/helper/Readability.js
       - run: gradle assembleRelease
       - name: Enable KVM
         run: |

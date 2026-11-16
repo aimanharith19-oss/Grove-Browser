@@ -64,6 +64,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
 
 /** Windows Phone "tilt": a tile sinks a little while your finger is on it. */
 @Composable
@@ -148,7 +152,16 @@ fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
                 val active = tab === vm.cur
                 val src = remember(tab) { MutableInteractionSource() }
                 val shot = tab.thumb
+                // Swipe a tab left or right to close it.
+                var dx by remember(tab) { mutableFloatStateOf(0f) }
                 Box(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.85f)
+                    .graphicsLayer { translationX = dx; alpha = 1f - (abs(dx) / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.85f) }
+                    .pointerInput(tab) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = { if (abs(dx) > size.width * 0.38f) vm.closeTab(tab); dx = 0f },
+                            onDragCancel = { dx = 0f },
+                        ) { change, d -> change.consume(); dx += d }
+                    }
                     .background(if (active) cs.primary else cs.surfaceVariant)
                     .then(if (active) Modifier.border(3.dp, cs.primary) else Modifier)
                     .clickable(interactionSource = src, indication = LocalIndication.current) { vm.select(tab); onClose() }) {
@@ -225,6 +238,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { it?.let(vm::exportBookmarks) }
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::importBookmarks) }
+    val autoDir = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { u -> vm.setBackupFolder(u) } }
     val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
 
     @Composable fun section(s: String) =
@@ -252,6 +266,11 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
                 }
             }
         }
+        section("screen")
+        option("full screen: " + if (p.immersive == 1) "on" else "off", false) { p.immersive = 1 - p.immersive }
+        info("hides android's status bar and navigation bar so pages use the whole screen. swipe from the top or bottom edge to see them")
+        option("smoother video drawing: " + if (p.surface == 1) "on" else "off", false) { p.surface = 1 - p.surface; vm.toast("applies after you close and reopen grove") }
+        info("lighter on the phone while videos play. if you see flashes under menus, turn it off")
         section("address bar")
         listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
         info("swipe left or right on the address bar to switch tabs")
@@ -277,6 +296,10 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         section("media")
         option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
         info("keeps any audio or video playing when you leave grove or turn off the screen")
+        option("mini player button on videos: " + if (p.miniBtn == 1) "on" else "off", false) { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
+        info("tap the small button on a video and it floats in a corner while you keep reading; drag it anywhere, ✕ puts it back")
+        section("downloads")
+        listOf("grove downloads files", "use another app (a download manager)").forEachIndexed { i, s -> option(s, p.downloader == i) { p.downloader = i } }
         Text("picture in picture", fontSize = 17.sp, color = cs.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
         listOf("any playing video, when you go home", "only full-screen video", "off (use ••• > picture in picture)").forEachIndexed { i, s ->
             val mode = if (i == 2) 0 else i + 1
@@ -285,6 +308,9 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         section("favorites")
         option("back up favorites", false) { backup.launch("grove-favorites.json") }
         option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
+        val folder = vm.backupFolder
+        option("automatic backup: " + (folder?.let { "on, in \"$it\"" } ?: "off"), false) { if (folder == null) autoDir.launch(null) else vm.setBackupFolder(null) }
+        info("pick a folder once; grove then keeps grove-favorites.json there up to date every time your favorites change")
         info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
         section("secure dns (dns over https)")
         option("off: use your network's dns", p.doh == 0) { p.doh = 0; vm.applyPrefs() }
@@ -299,7 +325,11 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         section("privacy")
         option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
         info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
-        info("tracking protection: strict · cookies isolated per site")
+        Text("website tracker blocker", fontSize = 17.sp, color = cs.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+        listOf("strict: trackers, fingerprinters, crypto-miners, social and cross-site cookies", "standard", "off").forEachIndexed { i, s ->
+            option(s, p.etp == i) { p.etp = i; Gecko.setEtp(i) }
+        }
+        info("the ••• menu shows how many trackers were blocked on the page · cookies are isolated per site")
         info("ads, trackers, scam, phishing and crypto-mining sites blocked by ublock origin")
         info("no telemetry, no studies or remote experiments, no ai, no vpn, no sponsored content")
         option("extensions (groveguard, ublock origin, firefox add-ons)", false) { onAddons() }

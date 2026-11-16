@@ -86,6 +86,12 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     var androidPerms: ((Array<String>, (Boolean) -> Unit) -> Unit)? = null
     /** Takes a picture of the page on screen (set by the browser view). */
     var capture: (() -> GeckoResult<Bitmap>?)? = null
+    /** Pull-to-refresh: 0..1 while pulling, -1 when idle. */
+    var pull by mutableStateOf(-1f)
+    /** Pages saved for offline reading. */
+    val saved = JsonList<SavedPage>(File(app.filesDir, "saved.json"),
+        { SavedPage(it.optString("title"), it.optString("url"), it.optLong("time"), it.getString("file")) },
+        { JSONObject().put("title", it.title).put("url", it.url).put("time", it.time).put("file", it.file) })
     /** Recently closed tabs, newest first. */
     val closed = mutableStateListOf<Closed>()
     /** Opens picture-in-picture now (set by the activity). */
@@ -155,6 +161,8 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         val ctl = runtime.webExtensionController
         if (prev !== t && prev != null && prev in tabs && prev.session.isOpen) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
         cur = t
+        // The tab you're looking at gets top priority from Android, so it stays smooth while others idle.
+        runCatching { prev?.takeIf { it !== t && it.session.isOpen }?.session?.setPriorityHint(GeckoSession.PRIORITY_DEFAULT); t.session.setPriorityHint(GeckoSession.PRIORITY_HIGH) }
         t.session.setActive(true)
         ctl.setTabActive(t.session, true)
         if (t.pending) { t.pending = false; if (!t.home) t.session.loadUri(t.url) }
@@ -181,7 +189,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     /** Screenshot of the current page: tab preview, and the home tile if the page is a favorite. */
     fun snapshot() {
         val t = cur ?: return
-        if (t.private || t.home || !Urls.isWeb(t.url) || t.progress != 100) return
+        if (t.private || t.home || !Urls.isWeb(t.url) || t.progress != 100 || t.playing || t.videoPlaying) return // never while media plays: it costs a frame
         val url = t.url
         runCatching {
             capture?.invoke()?.accept({ bmp ->
@@ -191,6 +199,90 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                 val k = Thumbs.key(url)
                 bookmarks.items.firstOrNull { Thumbs.key(it.url) == k }?.let { Thumbs.put(ctx, it.url, small) }
             }, { })
+        }
+    }
+
+    // ---------- reader view / saved pages ----------
+
+    /** Asks the page for its article (the helper script answers with one self-contained HTML page). mode: "view" or "save". */
+    fun reader(t: Tab, mode: String) {
+        if (!Urls.isWeb(t.url)) return
+        val port = t.ports.firstOrNull() ?: return toast("reload the page and try again")
+        toast(if (mode == "save") "saving for offline reading…" else "opening reader view…")
+        t.ports.forEach { runCatching { it.postMessage(JSONObject().put("reader", mode)) } }
+    }
+
+    private fun readerResult(t: Tab, m: JSONObject) {
+        val err = m.optString("err")
+        if (err.isNotEmpty()) return toast(err)
+        val html = m.optString("html")
+        if (html.isEmpty()) return
+        val title = m.optString("title").ifBlank { Urls.host(t.url) }.take(120)
+        if (m.optString("mode") != "save") { openHtml(html, t); return }
+        val name = "page-" + System.currentTimeMillis() + ".html"
+        val safe = title.replace(Regex("[\\\\/:*?\"<>|\\n]"), " ").trim().take(60).ifBlank { "page" }
+        thread {
+            val ok = runCatching {
+                File(ctx.filesDir, "reader").apply { mkdirs() }.resolve(name).writeText(html)
+                // a copy in Downloads, so it can be opened in any browser, sent, or moved to another device
+                val v = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "$safe (grove reader).html")
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/html")
+                }
+                ctx.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v)?.let { uri ->
+                    ctx.contentResolver.openOutputStream(uri)?.use { it.write(html.toByteArray()) }
+                }
+            }.isSuccess
+            main.post {
+                if (!ok) return@post toast("couldn't save this page")
+                saved.items.add(0, SavedPage(title, m.optString("url"), System.currentTimeMillis(), name)); saved.save()
+                toast("saved: ••• > saved pages (a copy is in downloads)")
+            }
+        }
+    }
+
+    private fun openHtml(html: String, from: Tab? = null) {
+        val t = newTab(parent = from)
+        runCatching { t.session.load(GeckoSession.Loader().data(html, "text/html")) }.onFailure { toast("couldn't open this page") }
+    }
+
+    fun openSaved(p: SavedPage) {
+        val html = runCatching { File(ctx.filesDir, "reader/" + p.file).readText() }.getOrNull() ?: return toast("this saved page is missing")
+        openHtml(html)
+    }
+
+    fun deleteSaved(p: SavedPage) { saved.items.remove(p); saved.save(); File(ctx.filesDir, "reader/" + p.file).delete() }
+
+    // ---------- automatic favorites backup ----------
+
+    fun setBackupFolder(uri: Uri?) {
+        if (uri == null) { prefs.sp.edit().remove("backupDir").apply(); return }
+        runCatching { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+        prefs.sp.edit().putString("backupDir", uri.toString()).apply()
+        autoBackup(tell = true)
+    }
+
+    val backupFolder: String? get() = prefs.sp.getString("backupDir", null)?.let { Uri.parse(it).lastPathSegment?.substringAfterLast(':')?.ifBlank { "storage" } }
+
+    /** Writes grove-favorites.json into the folder you chose, every time your favorites change. */
+    private fun autoBackup(tell: Boolean = false) {
+        val dir = prefs.sp.getString("backupDir", null) ?: return
+        val a = JSONArray(); bookmarks.items.forEach { a.put(JSONObject().put("title", it.title).put("url", it.url)) }
+        val json = JSONObject().put("app", "grove").put("version", 1).put("saved", System.currentTimeMillis()).put("bookmarks", a).toString(2)
+        thread {
+            val ok = runCatching {
+                val tree = Uri.parse(dir)
+                val cr = ctx.contentResolver
+                val id = android.provider.DocumentsContract.getTreeDocumentId(tree)
+                val kids = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
+                var doc: Uri? = null
+                cr.query(kids, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+                    while (c.moveToNext()) if (c.getString(1) == BACKUP_NAME) doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                }
+                val target = doc ?: android.provider.DocumentsContract.createDocument(cr, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id), "application/json", BACKUP_NAME)!!
+                cr.openOutputStream(target, "wt")!!.use { it.write(json.toByteArray()) }
+            }.isSuccess
+            if (tell || !ok) main.post { toast(if (ok) "favorites backed up to that folder; grove keeps the file up to date" else "automatic backup failed: choose the folder again in settings") }
         }
     }
 
@@ -317,7 +409,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                 bookmarks.items.add(Bookmark(id++, title.ifBlank { Urls.host(url) }.take(200), url)); added++
             }
         }
-        if (added > 0) bookmarks.save()
+        if (added > 0) { bookmarks.save(); autoBackup() }
         toast(if (found.isEmpty()) "no favorites found in this file" else "$added favorites restored")
     }
 
@@ -419,6 +511,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         val m = message as? JSONObject ?: return
                         if (m.optString("t") == "icon") Icons.hint(ctx, t.url, m.optString("h"))
                         if (m.optString("t") == "theme") t.theme = parseColor(m.optString("c"))
+                        if (m.optString("t") == "reader") readerResult(t, m)
                         if (m.optString("t") == "video") {
                             t.videoPlaying = m.optBoolean("playing")
                             if (m.optLong("w") > 0 && m.optLong("h") > 0) { t.videoW = m.optLong("w"); t.videoH = m.optLong("h") }
@@ -426,7 +519,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                     }
                     override fun onDisconnect(port: WebExtension.Port) { t.ports -= port }
                 })
-                runCatching { port.postMessage(JSONObject().put("bg", prefs.bgPlay == 1)) }
+                runCatching { port.postMessage(JSONObject().put("bg", prefs.bgPlay == 1).put("mini", prefs.miniBtn == 1)) }
             }
         }, "grove")
     }
@@ -439,10 +532,11 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         val i = bookmarks.items.indexOfFirst { it.id == b.id }
         if (i >= 0) bookmarks.items[i] = fixed else bookmarks.items.add(fixed)
         bookmarks.save()
+        autoBackup()
         snapshot() // the page on screen may be this favorite: take its picture for the home tile
     }
 
-    fun deleteBookmark(b: Bookmark) { bookmarks.items.removeAll { it.id == b.id }; bookmarks.save(); Thumbs.remove(ctx, b.url) }
+    fun deleteBookmark(b: Bookmark) { bookmarks.items.removeAll { it.id == b.id }; bookmarks.save(); Thumbs.remove(ctx, b.url); autoBackup() }
 
     private fun addVisit(t: Tab) {
         if (t.private || !Urls.isWeb(t.url)) return
@@ -470,6 +564,14 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     fun downloadUrl(url: String, disposition: String? = null, mimeRaw: String? = null) {
         if (!Urls.isWeb(url)) return toast("this file can't be downloaded")
         val mime = mimeRaw?.substringBefore(';')?.trim()
+        if (prefs.downloader == 1) { // hand the link to a download manager app
+            val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+            val chooser = Intent.createChooser(view, "download with")
+                .putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(android.content.ComponentName(ctx, MainActivity::class.java)))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            external?.invoke(chooser, null) ?: toast("no app can download this")
+            return
+        }
         val name = URLUtil.guessFileName(url, disposition, mime)
         runCatching {
             val req = DownloadManager.Request(Uri.parse(url))
@@ -548,7 +650,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         }
         s.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
-                t.progress = 5; t.manifest = null; t.videoPlaying = false
+                t.progress = 5; t.manifest = null; t.videoPlaying = false; t.trackers = 0
                 if (Urls.host(url) != Urls.host(t.url)) t.theme = null
             }
             override fun onProgressChange(session: GeckoSession, progress: Int) { t.progress = progress }
@@ -604,10 +706,16 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
             }
             override fun onMetadata(session: GeckoSession, mediaSession: MediaSession, meta: MediaSession.Metadata) {
                 t.mediaTitle = meta.title.orEmpty(); mediaChanged(t)
+                val who = listOfNotNull(meta.artist?.takeIf { it.isNotBlank() }, meta.album?.takeIf { it.isNotBlank() }).joinToString(" · ").ifBlank { Urls.host(t.url) }
+                MediaHub.details(mediaSession, who, null)
+                runCatching { meta.artwork?.getBitmap(512)?.accept({ bmp -> MediaHub.details(mediaSession, who, bmp) }, { }) }
             }
             override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.media = mediaSession; t.playing = true; mediaChanged(t) }
             override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false; mediaChanged(t) }
             override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false; mediaChanged(t) }
+        }
+        s.contentBlockingDelegate = object : org.mozilla.geckoview.ContentBlocking.Delegate {
+            override fun onContentBlocked(session: GeckoSession, event: org.mozilla.geckoview.ContentBlocking.BlockEvent) { t.trackers++ }
         }
         s.permissionDelegate = object : GeckoSession.PermissionDelegate {
             private fun ask(what: String, uri: String, done: (Boolean) -> Unit) {
@@ -669,6 +777,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     }.getOrNull()
 
     companion object {
+        private const val BACKUP_NAME = "grove-favorites.json"
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript", "moz-extension", "resource")
     }
 }

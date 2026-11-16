@@ -19,10 +19,20 @@ object MediaHub {
     @Volatile var session: org.mozilla.geckoview.MediaSession? = null; private set
     @Volatile var title = ""; private set
     @Volatile var playing = false; private set
+    /** Album art / video picture from the website, and who is playing. */
+    @Volatile var art: android.graphics.Bitmap? = null; private set
+    @Volatile var artist = ""; private set
     var listener: (() -> Unit)? = null
 
     fun update(s: org.mozilla.geckoview.MediaSession?, t: String, p: Boolean) {
+        if (s !== session) art = null
         session = s; title = t; playing = p && s != null
+        listener?.invoke()
+    }
+
+    fun details(s: org.mozilla.geckoview.MediaSession?, who: String, picture: android.graphics.Bitmap?) {
+        if (s !== session) return
+        artist = who; art = picture
         listener?.invoke()
     }
 }
@@ -72,8 +82,11 @@ class MediaService : Service() {
                 PlaybackState.ACTION_STOP or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS)
             .setState(if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
             .build())
+        val art = MediaHub.art
+        val who = MediaHub.artist.ifBlank { "Grove" }
         ms.setMetadata(MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, MediaHub.title)
-            .putString(MediaMetadata.METADATA_KEY_ARTIST, "Grove").build())
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, who)
+            .apply { if (art != null) putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art) }.build())
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE)
         val toggle = if (playing)
             Notification.Action.Builder(Icon.createWithResource(this, android.R.drawable.ic_media_pause), "pause", pi(PAUSE)).build()
@@ -82,7 +95,8 @@ class MediaService : Service() {
         val n = Notification.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_launcher_fg)
             .setContentTitle(MediaHub.title)
-            .setContentText("playing in grove")
+            .setContentText(MediaHub.artist.ifBlank { "playing in grove" })
+            .setLargeIcon(art ?: appIcon()) // the song's album art, or Grove's icon
             .setContentIntent(open)
             .setDeleteIntent(pi(STOP))
             .setOngoing(playing)
@@ -93,6 +107,13 @@ class MediaService : Service() {
         if (playing) runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }.onFailure { nm.notify(ID, n) }
         else { stopForeground(STOP_FOREGROUND_DETACH); nm.notify(ID, n) }
     }
+
+    private var icon: android.graphics.Bitmap? = null
+    private fun appIcon(): android.graphics.Bitmap? = icon ?: runCatching {
+        val d = packageManager.getApplicationIcon(packageName)
+        val b = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, 192, 192); d.draw(android.graphics.Canvas(b)); b
+    }.getOrNull().also { icon = it }
 
     override fun onDestroy() {
         MediaHub.listener = null

@@ -19,6 +19,12 @@ jobs:
           echo "uBO: $url"
           curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
           unzip -tq app/src/main/assets/ubo.xpi
+      - name: Bundle Readability (reader view)
+        run: |
+          npm pack @mozilla/readability@0.6.0 --silent
+          tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > app/src/main/assets/helper/Readability.js
+          rm mozilla-readability-0.6.0.tgz
+          test -s app/src/main/assets/helper/Readability.js
       - name: Signing key
         env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
         run: |

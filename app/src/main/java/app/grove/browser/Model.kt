@@ -20,6 +20,8 @@ import kotlin.reflect.KProperty
 
 data class Bookmark(val id: Long, val title: String, val url: String)
 data class Visit(val title: String, val url: String, val time: Long)
+/** A page saved for offline reading (reader view), kept as one HTML file. */
+data class SavedPage(val title: String, val url: String, val time: Long, val file: String)
 
 class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) {
     var session by mutableStateOf(session)
@@ -44,6 +46,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var manifest by mutableStateOf<JSONObject?>(null)
     /** The website's theme colour (meta theme-color), used to tint Grove's bars. */
     var theme by mutableStateOf<Int?>(null)
+    /** Trackers blocked on this page by Grove's tracking protection. */
+    var trackers by mutableIntStateOf(0)
     /** Last screenshot of the page (tab previews). */
     var thumb by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     val home get() = url.isBlank() || url == "about:blank"
@@ -67,10 +71,13 @@ class JsonList<T>(private val file: File, private val read: (JSONObject) -> T, p
             items.clear(); items.addAll(n)
         }
     }
+    /** Written on a background thread so a long history never makes the screen stutter. */
     fun save() {
         val a = JSONArray(); items.forEach { a.put(write(it)) }
-        val tmp = File(file.path + ".tmp"); tmp.writeText(a.toString()); tmp.renameTo(file)
+        IO.execute { runCatching { val tmp = File(file.path + ".tmp"); tmp.writeText(a.toString()); tmp.renameTo(file) } }
     }
+
+    companion object { val IO: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor() }
 }
 
 val ENGINES = listOf(
@@ -108,7 +115,17 @@ class Prefs(ctx: Context) {
     /** Text size on websites, in percent. */
     var textSize by IntPref(sp, "textSize", 100)
     /** 1 = allow pinch zoom on every website. */
-    var forceZoom by IntPref(sp, "forceZoom", 0)
+    var forceZoom by IntPref(sp, "forceZoom", 1)
+    /** 1 = hide Android's status bar and navigation bar while browsing (swipe from the edge to see them). */
+    var immersive by IntPref(sp, "immersive", 1)
+    /** 0 = Grove downloads files itself, 1 = hand downloads to another app (a download manager). */
+    var downloader by IntPref(sp, "downloader", 0)
+    /** Tracking protection: 0 strict, 1 standard, 2 off. */
+    var etp by IntPref(sp, "etp", 0)
+    /** 1 = draw pages on a plain surface (smoother video; applies after restart). */
+    var surface by IntPref(sp, "surface", 0)
+    /** 1 = small "mini player" button on videos. */
+    var miniBtn by IntPref(sp, "miniBtn", 1)
     /** 0 = address bar at the bottom, 1 = at the top. */
     var barTop by IntPref(sp, "barTop", 0)
     /** DNS over HTTPS: 0 off, then DOH[i - 1]. */
@@ -179,6 +196,9 @@ object Urls {
     }
 
     fun isWeb(url: String?) = url != null && Uri.parse(url).scheme?.lowercase().let { it == "http" || it == "https" }
+
+    /** What the address bar shows for a page. */
+    fun label(url: String) = if (url.startsWith("data:")) "reader" else host(url)
 
     fun host(url: String) = runCatching { Uri.parse(url).host?.removePrefix("www.") }.getOrNull() ?: url
 }

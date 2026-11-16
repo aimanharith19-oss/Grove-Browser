@@ -75,7 +75,8 @@ object Gecko {
             .build()
         // No telemetry delegate and no crash handler are set: nothing is collected or sent.
         val runtime = GeckoRuntime.create(ctx, settings)
-        applyPrefs(sp.getInt("textSize", 100), sp.getInt("forceZoom", 0) == 1, sp.getInt("doh", 0), runtime)
+        applyPrefs(sp.getInt("textSize", 100), sp.getInt("forceZoom", 1) == 1, sp.getInt("doh", 0), runtime)
+        setEtp(sp.getInt("etp", 0), runtime)
         val ctl = runtime.webExtensionController
         ctl.setPromptDelegate(prompts)
         ctl.ensureBuiltIn(HELPER_URI, HELPER_ID).accept({ ext ->
@@ -104,6 +105,15 @@ object Gecko {
             if (provider == null) s.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_OFF)
             else { s.setTrustedRecursiveResolverUri(provider.second); s.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST) }
         }.onFailure { Log.w("Grove", "prefs failed", it) }
+    }
+
+    /** Tracking protection level: 0 strict, 1 standard, 2 off. */
+    fun setEtp(level: Int, r: GeckoRuntime? = rt) {
+        val cb = r?.settings?.contentBlocking ?: return
+        runCatching {
+            cb.setEnhancedTrackingProtectionLevel(when (level) { 1 -> ContentBlocking.EtpLevel.DEFAULT; 2 -> ContentBlocking.EtpLevel.NONE; else -> ContentBlocking.EtpLevel.STRICT })
+            cb.setAntiTracking(when (level) { 1 -> ContentBlocking.AntiTracking.DEFAULT; 2 -> ContentBlocking.AntiTracking.NONE; else -> ContentBlocking.AntiTracking.STRICT })
+        }.onFailure { Log.w("Grove", "etp failed", it) }
     }
 
     fun setHttps(mode: Int) {
