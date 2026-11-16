@@ -1,0 +1,71 @@
+name: upgrade
+# Installs 1.2.1 (last version known to show pages on a phone), opens a site, then installs this version over it
+# and checks the site is drawn — the path a phone takes, which a fresh install doesn't test.
+on: { workflow_dispatch: {}, push: { branches: [main] } }
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "current" }
+      - name: Build both versions
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          url=$(gh api repos/gorhill/uBlock/releases --jq '[.[] | select(.prerelease|not) | .assets[] | select(.name|endswith(".firefox.signed.xpi"))][0].browser_download_url')
+          curl -fsSL "$url" -o /tmp/ubo.xpi
+          npm pack @mozilla/readability@0.6.0 --silent && tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > /tmp/Readability.js
+          git worktree add /tmp/old 6557379
+          cp /tmp/ubo.xpi /tmp/old/app/src/main/assets/ubo.xpi
+          (cd /tmp/old && gradle assembleRelease -q) && cp /tmp/old/app/build/outputs/apk/release/app-x86_64-release.apk /tmp/old.apk
+          cp /tmp/ubo.xpi app/src/main/assets/ubo.xpi; cp /tmp/Readability.js app/src/main/assets/helper/Readability.js
+          gradle assembleRelease -q && cp app/build/outputs/apk/release/app-x86_64-release.apk /tmp/new.apk
+          ls -la /tmp/old.apk /tmp/new.apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r /tmp/old.apk
+            adb shell am start -n app.grove.browser/.MainActivity
+            sleep 50
+            adb shell am start -a android.intent.action.VIEW -d https://example.com app.grove.browser
+            sleep 25
+            adb shell screencap -p /sdcard/a.png && adb pull /sdcard/a.png old.png
+            adb shell am force-stop app.grove.browser
+            adb logcat -c
+            adb install -r /tmp/new.apk
+            adb shell am start -n app.grove.browser/.MainActivity
+            sleep 40
+            adb shell am start -a android.intent.action.VIEW -d https://www.wikipedia.org app.grove.browser
+            sleep 30
+            adb shell screencap -p /sdcard/b.png && adb pull /sdcard/b.png new.png
+            adb logcat -d > logcat.txt || true
+      - name: Result
+        if: always()
+        run: |
+          pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          for n in ["old.png", "new.png"]:
+              try: im = Image.open(n).convert("RGB")
+              except Exception as e: print(n, "missing", e); continue
+              w, h = im.size
+              px = list(im.crop((w // 10, h // 4, w * 9 // 10, h * 3 // 4)).resize((80, 80)).getdata())
+              dark = sum(1 for p in px if sum(p) < 60) / len(px)
+              print(n, "dark pixels", f"{dark:.0%}", "average", tuple(sum(c[i] for c in px) // len(px) for i in range(3)))
+          PY
+          grep -E " (E|W|I) (Grove|GeckoSession|GeckoView|Gecko|GeckoConsole|Web Content)" logcat.txt | grep -viE "telemetry|glean" | head -60 || true
+          grep -n -A25 -E "FATAL EXCEPTION" logcat.txt | head -60 || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: upgrade, path: "old.png\nnew.png\nlogcat.txt" }
