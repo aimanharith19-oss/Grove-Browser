@@ -51,7 +51,6 @@ jobs:
             groveguard=chromium/groveguard=$RUNNER_TEMP/key.pem grove=chromium/grove-ext=$RUNNER_TEMP/key2.pem
           rm $RUNNER_TEMP/key.pem $RUNNER_TEMP/key2.pem
           BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          echo "--- colour resources"; $BT/aapt2 dump resources titanium.apk | grep -A1 -E 'color/(baseline_primary|baseline_neutral|default_bg_color|toolbar_background_primary|default_control_color_active|light_active_color|default_icon_color_accent)' | head -80
       - name: Align and sign
         if: env.SKIP != '1'
         run: |

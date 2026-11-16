@@ -278,7 +278,7 @@ def main():
                 data, n = patch_arsc(data); print("resource strings changed:", n)
             elif name == "assets/extensions/bundled.json":
                 idx = json.loads(data)
-                for name, crx, ext_id, version in exts: idx[ext_id] = {"external_crx": name + ".crx", "external_version": version}
+                for ename, _, ext_id, version in exts: idx[ext_id] = {"external_crx": ename + ".crx", "external_version": version}
                 data = (json.dumps(idx, indent=2) + "\n").encode(); print("bundled:", list(idx))
             elif name in icons and (data[:8] == b"\x89PNG\r\n\x1a\n" or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")):
                 # resource files have short obfuscated names without extensions: recognise the image by its first bytes
@@ -296,9 +296,15 @@ def main():
                 print("icon left as is:", name)
             zi = zipfile.ZipInfo(name, info.date_time); zi.compress_type = info.compress_type; zi.external_attr = info.external_attr
             zout.writestr(zi, data)
-        for name, crx, _, _ in exts:
-            zi = zipfile.ZipInfo("assets/extensions/" + name + ".crx", (2001, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED
+        names = set(zin.namelist())
+        assert "assets/extensions/bundled.json" in names, "Titanium no longer has assets/extensions/bundled.json"
+        for ename, crx, _, _ in exts:
+            zi = zipfile.ZipInfo("assets/extensions/" + ename + ".crx", (2001, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED
             zout.writestr(zi, crx)
+    out = zipfile.ZipFile(dst)
+    idx = json.loads(out.read("assets/extensions/bundled.json"))
+    assert all(e[2] in idx for e in exts), "bundled.json is missing an extension"
+    print("check: bundled.json lists", list(idx))
 
 
 if __name__ == "__main__":
