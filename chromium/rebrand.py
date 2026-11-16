@@ -247,15 +247,14 @@ def main():
             elif name == "assets/extensions/bundled.json":
                 idx = json.loads(data); idx[ext_id] = {"external_crx": "groveguard.crx", "external_version": version}
                 data = (json.dumps(idx, indent=2) + "\n").encode(); print("bundled:", list(idx))
-            elif name in icons and name.endswith(".png"):
+            elif name in icons and (data[:8] == b"\x89PNG\r\n\x1a\n" or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")):
+                # resource files have short obfuscated names without extensions: recognise the image by its first bytes
                 from PIL import Image
                 w, h = Image.open(io.BytesIO(data)).size
-                data = resized(icon_dir, icons[name], (w, h)); print("icon", name, icons[name], w, h)
-            elif name in icons and name.endswith(".webp"):
-                from PIL import Image
-                w, h = Image.open(io.BytesIO(data)).size
-                from PIL import Image as I
-                im = I.open(io.BytesIO(resized(icon_dir, icons[name], (w, h)))); b = io.BytesIO(); im.save(b, "WEBP", lossless=True); data = b.getvalue()
+                png = resized(icon_dir, icons[name], (w, h))
+                if data[:4] == b"RIFF":
+                    b = io.BytesIO(); Image.open(io.BytesIO(png)).save(b, "WEBP", lossless=True); png = b.getvalue()
+                data = png
                 print("icon", name, icons[name], w, h)
             elif name in icons:
                 print("icon left as is (not a bitmap):", name)
