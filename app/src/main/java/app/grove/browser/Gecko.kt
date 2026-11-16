@@ -56,6 +56,13 @@ object Gecko {
     private fun create(ctx: Context): GeckoRuntime {
         app = ctx
         val sp = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE)
+        if (sp.getBoolean("resetEngine", false)) {
+            // "reset web engine" in settings: start the engine with a fresh profile (favorites, history and settings are Grove's own files and stay)
+            File(ctx.filesDir, "mozilla").deleteRecursively()
+            ctx.cacheDir.deleteRecursively()
+            sp.edit().remove("resetEngine").commit()
+            Log.i("Grove", "web engine reset")
+        }
         val https = sp.getInt("https", 0)
         val cfg = File(ctx.filesDir, "gecko.yaml").apply { writeText(config(httpsFirst = https == 0)) }
         val blocking = ContentBlocking.Settings.Builder()

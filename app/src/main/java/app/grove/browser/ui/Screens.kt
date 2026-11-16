@@ -322,6 +322,15 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         option("make grove your default browser", false) {
             runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
         }
+        section("troubleshooting")
+        option("reset web engine", false) {
+            p.sp.edit().putBoolean("resetEngine", true).commit()
+            val ctx2 = ctx.applicationContext
+            val i = ctx2.packageManager.getLaunchIntentForPackage(ctx2.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            ctx2.startActivity(i)
+            Runtime.getRuntime().exit(0)
+        }
+        info("if websites show black or won't load: starts the web engine fresh. you'll be signed out of websites; favorites, history, saved pages and settings stay")
         section("privacy")
         option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
         info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
