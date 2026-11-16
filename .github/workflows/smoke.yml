@@ -47,6 +47,20 @@ jobs:
             grep -qE "uBO (installed|ready)" logcat.txt
             grep -q "helper connected" logcat.txt
             grep -q "Groveguard ready" logcat.txt
+      - name: Is the page drawn? (black-screen check)
+        if: always()
+        run: |
+          pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          im = Image.open("screen.png").convert("RGB"); w, h = im.size
+          box = im.crop((w // 10, h // 4, w * 9 // 10, h * 3 // 4)).resize((80, 80))
+          px = list(box.getdata()); dark = sum(1 for p in px if sum(p) < 60) / len(px)
+          avg = tuple(sum(c[i] for c in px) // len(px) for i in range(3))
+          print(f"screen {w}x{h} middle: average colour {avg}, dark pixels {dark:.0%}")
+          open("pagecheck.txt", "w").write(f"{dark:.3f}")
+          PY
+          python3 -c "import sys; d=float(open('pagecheck.txt').read()); print('PAGE BLACK' if d > 0.9 else 'page drawn'); sys.exit(1 if d > 0.9 else 0)"
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: smoke-logs, path: "logcat.txt\nscreen.png" }
