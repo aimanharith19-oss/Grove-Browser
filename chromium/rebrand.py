@@ -206,7 +206,7 @@ def icon_files(apk):
     aapt2 = os.path.join(os.environ["ANDROID_HOME"], "build-tools", bt, "aapt2")
     dump = subprocess.run([aapt2, "dump", "resources", apk], check=True, capture_output=True, text=True).stdout.splitlines()
     want = {"mipmap/app_icon": "full", "mipmap/layered_app_icon_background": "bg", "mipmap/layered_app_icon_foreground": "fg",
-            "drawable/ic_launcher": "full", "drawable/ic_launcher_round": "round"}
+            "drawable/ic_launcher": "full", "drawable/ic_launcher_round": "round", "drawable/themed_app_icon": "fg"}
     out, cur = {}, None
     for line in dump:
         s = line.strip()
@@ -256,8 +256,11 @@ def main():
                     b = io.BytesIO(); Image.open(io.BytesIO(png)).save(b, "WEBP", lossless=True); png = b.getvalue()
                 data = png
                 print("icon", name, icons[name], w, h)
+            elif name in icons and icons[name] == "fg" and data[:2] == b"\x03\x00":
+                # the icon's foreground / monochrome layer is a vector: use Grove Browser's own compiled vector (the tree)
+                data = open(os.path.join(icon_dir, "fg-vector.axml"), "rb").read(); print("icon", name, "fg vector")
             elif name in icons:
-                print("icon left as is (not a bitmap):", name)
+                print("icon left as is:", name)
             zi = zipfile.ZipInfo(name, info.date_time); zi.compress_type = info.compress_type; zi.external_attr = info.external_attr
             zout.writestr(zi, data)
         zi = zipfile.ZipInfo("assets/extensions/groveguard.crx", (2001, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED

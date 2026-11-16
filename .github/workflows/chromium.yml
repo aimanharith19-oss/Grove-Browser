@@ -56,7 +56,7 @@ jobs:
           $BT/aapt2 dump badging grove-browser-chromium-arm64.apk | grep -E "^package|application-label:|application: label"
           $BT/aapt2 dump xmltree --file AndroidManifest.xml grove-browser-chromium-arm64.apk | grep -c jqssun || true
           $BT/zipalign -c -P 16 4 grove-browser-chromium-arm64.apk && echo aligned
-          for x in r21.xml BJ.xml JP.xml; do echo "== $x"; $BT/aapt2 dump xmltree --file res/$x grove-browser-chromium-arm64.apk | head -12; done
+          for x in r21.xml BJ.xml JP.xml; do echo "== $x"; $BT/aapt2 dump xmltree --file res/$x grove-browser-chromium-arm64.apk | head -12 | sed 's/^/   | /'; done
           ls -la grove-browser-chromium-arm64.apk
       - uses: actions/upload-artifact@v4
         if: env.SKIP != '1'
