@@ -283,8 +283,8 @@ private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
         factory = { c ->
             // The plain page view, as in 1.2 (a custom page view in 1.3 drew pages black on some phones).
             GeckoView(c).apply {
-                // Texture rendering avoids flashes under Grove's menus; surface rendering is lighter for video (your choice in settings).
-                setViewBackend(if (vm.prefs.surface == 1) GeckoView.BACKEND_SURFACE_VIEW else GeckoView.BACKEND_TEXTURE_VIEW)
+                // Texture rendering: no flashes under Grove's menus, and surface rendering drew pages black on some phones.
+                setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
                 // Android autofill (password managers such as Grove Vault) can see and fill web forms.
                 setAutofillEnabled(true)
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES

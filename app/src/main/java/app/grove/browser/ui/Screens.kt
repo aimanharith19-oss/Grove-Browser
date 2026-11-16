@@ -269,8 +269,6 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         section("screen")
         option("full screen: " + if (p.immersive == 1) "on" else "off", false) { p.immersive = 1 - p.immersive }
         info("hides android's status bar and navigation bar so pages use the whole screen. swipe from the top or bottom edge to see them")
-        option("smoother video drawing: " + if (p.surface == 1) "on" else "off", false) { p.surface = 1 - p.surface; vm.toast("applies after you close and reopen grove") }
-        info("lighter on the phone while videos play. if you see flashes under menus, turn it off")
         section("address bar")
         listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
         info("swipe left or right on the address bar to switch tabs")
