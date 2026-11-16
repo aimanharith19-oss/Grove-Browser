@@ -1,0 +1,66 @@
+{
+  "manifest_version": 3,
+  "name": "Groveguard",
+  "version": "1.8.0",
+  "description": "Blocks ads, trackers, 18+ and dangerous sites with uBlock Origin and EasyList filter lists you choose: network blocking, element hiding and scriptlets. Lists update daily; nothing you browse is sent anywhere.",
+  "icons": {
+    "48": "icon48.png",
+    "96": "icon96.png",
+    "128": "icon128.png"
+  },
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "webNavigation",
+    "tabs",
+    "alarms",
+    "scripting",
+    "userScripts",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "cosmetic.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Groveguard",
+    "default_icon": {
+      "48": "icon48.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "adult.html",
+        "adult.js",
+        "warning.html",
+        "warning.js",
+        "wp.css",
+        "icon48.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,11 @@
 name: chromium
+# Grove Browser (Chromium): the newest Titanium release (open-source Chromium fork for Android with Chrome extensions,
+# GPL-2.0, https://github.com/jqssun/android-titanium-browser) rebranded as Grove Browser, with Groveguard built in,
+# signed with the Grove key. Runs on every push to this branch, by hand, and daily (picks up new Chromium releases).
 on:
   push: { branches: [chromium] }
+  workflow_dispatch:
+  schedule: [{ cron: "17 3 * * *" }]
 permissions: { contents: write }
 jobs:
   build:
@@ -9,29 +14,57 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
-      - name: Download latest Titanium (Chromium fork with extensions)
+      - name: Latest Titanium release
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          gh api repos/jqssun/android-titanium-browser/releases/latest --jq '.tag_name, (.assets[] | .name + " " + (.size|tostring))'
+          tag=$(gh api repos/jqssun/android-titanium-browser/releases/latest --jq .tag_name)
+          echo "TAG=$tag" >> $GITHUB_ENV
+          if [ "${{ github.event_name }}" = schedule ] && git ls-remote --exit-code origin "refs/tags/chromium-$tag" >/dev/null; then
+            echo "already built $tag"; echo "SKIP=1" >> $GITHUB_ENV; exit 0
+          fi
           url=$(gh api repos/jqssun/android-titanium-browser/releases/latest --jq '.assets[] | select(.name|endswith("arm64-v8a.apk")) | .browser_download_url')
           curl -fsSL "$url" -o titanium.apk
-          ls -la titanium.apk
-      - name: Inspect
+          echo "Titanium $tag: $(stat -c %s titanium.apk) bytes"
+      - name: Signing key
+        if: env.SKIP != '1'
+        env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
         run: |
-          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1); echo $BT
-          $BT/aapt2 dump badging titanium.apk | head -30
-          $BT/aapt2 dump xmltree --file AndroidManifest.xml titanium.apk | grep -nE 'package=|authorities|android:label|android:icon|roundIcon|permission.*jqssun|versionCode|sharedUserId' | head -60
-          $BT/aapt2 dump resources titanium.apk | grep -nE 'app_icon|ic_launcher|app_name|themed_app_icon' | head -40
-          $BT/aapt2 dump resources titanium.apk | grep -c 'resource 0x' 
-          unzip -l titanium.apk | grep -E 'assets/extensions|lib/' | head -30
-          unzip -l titanium.apk | awk '{print $4}' | grep '^res/' | head -20
-          unzip -l titanium.apk | tail -1
-          $BT/apksigner verify --print-certs titanium.apk | head -5
-          python3 - <<'PY'
-          import zipfile
-          z=zipfile.ZipFile('titanium.apk')
-          for n in ['assets/extensions/bundled.json']:
-              try: print(n, z.read(n)[:1500].decode())
-              except KeyError: print('missing', n)
-          print([ (i.filename, i.compress_type) for i in z.infolist() if i.filename.startswith('lib/')][:6])
-          PY
+          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks
+          pw=$(printf '%s' "$PW" | sed 's/^.*= *//' | tr -d ' \r\n')
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || pw="c220b803016a2f1120d5fc93"
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || { echo "::error::not the Grove key"; exit 1; }
+          echo "::add-mask::$pw"
+          echo "PW=$pw" >> $GITHUB_ENV
+          # the same Grove key signs the built-in Groveguard extension, so its id never changes
+          keytool -importkeystore -noprompt -srckeystore $RUNNER_TEMP/grove.jks -srcstorepass "$pw" -srcalias grove -srckeypass "$pw" \
+            -destkeystore $RUNNER_TEMP/k.p12 -deststoretype PKCS12 -deststorepass "$pw" -destkeypass "$pw" >/dev/null
+          openssl pkcs12 -in $RUNNER_TEMP/k.p12 -nocerts -nodes -passin pass:"$pw" | openssl pkey -out $RUNNER_TEMP/key.pem
+          rm $RUNNER_TEMP/k.p12
+      - name: Rebrand as Grove Browser
+        if: env.SKIP != '1'
+        run: |
+          pip install --quiet pillow
+          python3 chromium/rebrand.py titanium.apk unsigned.apk chromium/groveguard $RUNNER_TEMP/key.pem chromium/icon
+          rm $RUNNER_TEMP/key.pem
+      - name: Align and sign
+        if: env.SKIP != '1'
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/zipalign -f -P 16 4 unsigned.apk aligned.apk
+          $BT/apksigner sign --ks $RUNNER_TEMP/grove.jks --ks-pass env:PW --ks-key-alias grove --key-pass env:PW --v4-signing-enabled false --out grove-browser-chromium-arm64.apk aligned.apk
+          $BT/apksigner verify --print-certs grove-browser-chromium-arm64.apk | head -3
+          $BT/aapt2 dump badging grove-browser-chromium-arm64.apk | grep -E "^package|application-label:|application: label"
+          $BT/aapt2 dump xmltree --file AndroidManifest.xml grove-browser-chromium-arm64.apk | grep -c jqssun || true
+          $BT/zipalign -c -P 16 4 grove-browser-chromium-arm64.apk && echo aligned
+          ls -la grove-browser-chromium-arm64.apk
+      - uses: actions/upload-artifact@v4
+        if: env.SKIP != '1'
+        with: { name: grove-browser-chromium, path: grove-browser-chromium-arm64.apk }
+      - name: Publish to apk-chromium branch
+        if: env.SKIP != '1'
+        run: |
+          mkdir out && mv grove-browser-chromium-arm64.apk out/ && cd out
+          printf 'Grove Browser (Chromium) built from Titanium %s\nSource: https://github.com/jqssun/android-titanium-browser/tree/%s (GPL-2.0) + chromium/rebrand.py in this repository\n' "$TAG" "$TAG" > SOURCE.txt
+          git init -q -b apk-chromium && git add . && git -c user.name=ci -c user.email=ci@grove commit -qm "Grove Browser (Chromium) from Titanium $TAG"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk-chromium
+          cd .. && git tag -f "chromium-$TAG" && git push -qf origin "chromium-$TAG"

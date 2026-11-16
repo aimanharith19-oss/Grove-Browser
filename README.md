@@ -1,3 +1,20 @@
+# Grove Browser (Chromium)
+
+This branch builds **Grove Browser on the Chromium engine, with Chrome extensions** (Chrome Web Store, uBlock Origin, …).
+It starts from the newest release of [Titanium Browser](https://github.com/jqssun/android-titanium-browser), an open-source
+(GPL-2.0) Chromium fork for Android based on GrapheneOS's Vanadium, and `chromium/rebrand.py` turns it into Grove Browser:
+
+- package `app.grove.browser` and the Grove signing key, so it installs over the Firefox-based Grove Browser
+- the name Grove Browser and the Grove icon
+- **Groveguard built in** (ads, trackers, 18+, dangerous sites; link it to the Groveguard app from its history page)
+
+Building Chromium itself needs a large machine, so the GitHub workflow (`.github/workflows/chromium.yml`) rebrands
+Titanium's published build instead; it checks daily for new Chromium versions. The APK is on the `apk-chromium` branch.
+
+Installing extensions: open the Chrome Web Store, turn on **Desktop site** in the menu, then "Add to Chrome".
+
+---
+
 # Grove Browser
 
 A light, private Android browser with a Windows Phone-style interface, running on Mozilla's Gecko engine (GeckoView), the same engine Firefox uses.

@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Groveguard filter lists</title><link rel="stylesheet" href="wp.css"></head><body><main>
+<div class="app">GROVEGUARD</div><h1>filter lists</h1>
+<p class="dim" id="st"></p>
+<button id="up">update now</button>
+<p id="us" hidden class="dim" style="border-left:3px solid #e51400;padding-left:10px">Ad-script blocking is limited. To make it reliable, open your browser's extensions page, open Groveguard's details and switch on <b>Allow user scripts</b>, then reload this page.</p>
+<div id="lists"></div>
+<div class="sec">MY RULES</div>
+<p class="dim">Your own block and allow lists win over every filter list (a site also covers its sub-domains).</p>
+<div class="row"><input id="ruleHost" placeholder="example.com" style="flex:1;background:#ddd;color:#000;border:0;padding:10px;font-size:16px"></div>
+<button id="addBlock">block</button> <button class="o" id="addAllow">allow</button>
+<div id="myBlock"></div><div id="myAllow"></div>
+<div class="sec">MY FILTERS</div>
+<p class="dim">One rule per line, uBlock Origin / Adblock Plus syntax, e.g. <code>||ads.example.com^</code> or <code>example.com##.banner</code>.</p>
+<textarea id="custom" rows="8" spellcheck="false"></textarea>
+<button id="apply">apply</button>
+<div class="sec">ALLOWED DANGEROUS SITES</div>
+<div id="allowed"></div>
+<div class="sec">PAUSED SITES</div>
+<div id="paused"></div>
+<p class="dim">Lists and the dangerous-site list update automatically every day. Filter lists © their authors
+(uBlock Origin uAssets GPL-3.0, EasyList/EasyPrivacy CC BY-SA 3.0, AdGuard CC BY-SA, Peter Lowe, malware-filter CC0, OISD, The Block List Project Unlicense).</p>
+</main><script src="options.js"></script></body></html>
