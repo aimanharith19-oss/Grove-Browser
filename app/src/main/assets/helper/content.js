@@ -30,6 +30,13 @@
     send({ t: "video", playing: !!v, w: v ? v.videoWidth : 0, h: v ? v.videoHeight : 0 });
   };
   for (const ev of ["play", "playing", "pause", "ended", "emptied", "loadedmetadata"]) document.addEventListener(ev, report, true);
+  // events can be missed (videos made by scripts, shadow DOM): check again every second while a page has video
+  let lastSent = null;
+  setInterval(() => {
+    if (!document.querySelector("video") && lastSent !== true) return;
+    const v = playingVideo(), now = !!v;
+    if (now !== lastSent) { lastSent = now; report(); }
+  }, 1000);
 
   // Site icon for favorites (top frame only).
   const icons = () => {

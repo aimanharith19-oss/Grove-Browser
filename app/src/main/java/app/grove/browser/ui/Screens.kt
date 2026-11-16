@@ -250,99 +250,131 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
     @Composable fun info(s: String) =
         Text(s, fontSize = 14.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
+    // Settings as a short list of categories; each opens its own page (back returns to the list).
+    var page by remember { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
+    val pages = listOf(
+        "general" to "search engine, address bar, links in apps, default browser",
+        "appearance" to "theme, accent colour, full screen, text size, zoom",
+        "privacy & security" to "tracker blocker, https, secure dns, site data",
+        "media & downloads" to "background play, picture in picture, mini player, downloads",
+        "favorites" to "back up, restore, automatic backup",
+        "extensions" to "groveguard, ublock origin, firefox add-ons",
+        "troubleshooting & about" to "reset web engine, version",
+    )
     Column(Modifier.fillMaxSize().tintBackground().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-        Header("settings")
-        section("search engine")
-        ENGINES.forEachIndexed { i, (name, _) -> option(name, p.engine == i) { p.engine = i } }
-        section("theme")
-        listOf("system", "dark", "light").forEachIndexed { i, s -> option(s, p.theme == i) { p.theme = i } }
-        section("accent colour")
-        ACCENTS.indices.chunked(5).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { i ->
-                    Box(Modifier.weight(1f).aspectRatio(1f).background(Color(ACCENTS[i]))
-                        .then(if (p.accent == i) Modifier.border(3.dp, cs.onBackground) else Modifier)
-                        .clickable { p.accent = i })
+        Header(page ?: "settings")
+        when (page) {
+            null -> pages.forEach { (name, sub) ->
+                Column(Modifier.fillMaxWidth().clickable { if (name == "extensions") onAddons() else page = name }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(name, fontSize = 24.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
+                    Text(sub, fontSize = 13.sp, color = cs.onSurfaceVariant)
                 }
             }
-        }
-        section("screen")
-        option("full screen: " + if (p.immersive == 1) "on" else "off", false) { p.immersive = 1 - p.immersive }
-        info("hides android's status bar and navigation bar so pages use the whole screen. swipe from the top or bottom edge to see them")
-        section("address bar")
-        listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
-        info("swipe left or right on the address bar to switch tabs")
-        section("text size on websites")
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(80, 100, 120, 150, 200).forEach { v ->
-                Box(Modifier.weight(1f).height(44.dp).background(if (p.textSize == v) cs.primary else cs.surfaceVariant)
-                    .clickable { p.textSize = v; vm.applyPrefs() }, contentAlignment = Alignment.Center) {
-                    Text("$v%", color = if (p.textSize == v) Color.White else cs.onSurface, fontSize = 15.sp)
+            "general" -> {
+                section("search engine")
+                ENGINES.forEachIndexed { i, (name, _) -> option(name, p.engine == i) { p.engine = i } }
+                section("address bar")
+                listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
+                info("swipe left or right on the address bar to switch tabs")
+                section("open links in apps")
+                listOf("ask", "always", "never").forEachIndexed { i, s -> option(s, p.appLinks == i) { p.appLinks = i } }
+                info("e.g. youtube.com links can open the youtube app")
+                section("default browser")
+                option("make grove your default browser", false) {
+                    runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
                 }
             }
+            "appearance" -> {
+                section("theme")
+                listOf("system", "dark", "light").forEachIndexed { i, s -> option(s, p.theme == i) { p.theme = i } }
+                section("accent colour")
+                ACCENTS.indices.chunked(5).forEach { row ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { i ->
+                            Box(Modifier.weight(1f).aspectRatio(1f).background(Color(ACCENTS[i]))
+                                .then(if (p.accent == i) Modifier.border(3.dp, cs.onBackground) else Modifier)
+                                .clickable { p.accent = i })
+                        }
+                    }
+                }
+                section("screen")
+                option("full screen: " + if (p.immersive == 1) "on" else "off", false) { p.immersive = 1 - p.immersive }
+                info("hides android's status bar and navigation bar so pages use the whole screen. swipe from the top or bottom edge to see them")
+                section("text size on websites")
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(80, 100, 120, 150, 200).forEach { v ->
+                        Box(Modifier.weight(1f).height(44.dp).background(if (p.textSize == v) cs.primary else cs.surfaceVariant)
+                            .clickable { p.textSize = v; vm.applyPrefs() }, contentAlignment = Alignment.Center) {
+                            Text("$v%", color = if (p.textSize == v) Color.White else cs.onSurface, fontSize = 15.sp)
+                        }
+                    }
+                }
+                option("zoom on every website: " + if (p.forceZoom == 1) "on" else "off", false) { p.forceZoom = 1 - p.forceZoom; vm.applyPrefs() }
+                info("lets you pinch to zoom even on sites that try to stop it")
+            }
+            "privacy & security" -> {
+                section("website tracker blocker")
+                listOf("strict: trackers, fingerprinters, crypto-miners, social and cross-site cookies", "standard", "off").forEachIndexed { i, s ->
+                    option(s, p.etp == i) { p.etp = i; Gecko.setEtp(i) }
+                }
+                info("the ••• menu (more…) shows how many trackers were blocked on the page · cookies are isolated per site")
+                section("secure connections (https)")
+                listOf("https first (recommended)", "https only: warn before any http page", "allow http").forEachIndexed { i, s ->
+                    option(s, p.https == i) { p.https = i; Gecko.setHttps(i) }
+                }
+                info("switching between \"first\" and \"allow http\" applies after grove restarts")
+                section("secure dns (dns over https)")
+                option("off: use your network's dns", p.doh == 0) { p.doh = 0; vm.applyPrefs() }
+                DOH.forEachIndexed { i, (name, _) -> option(name, p.doh == i + 1) { p.doh = i + 1; vm.applyPrefs() } }
+                info("hides which sites you look up from your network provider. falls back to normal dns if the provider can't be reached")
+                section("site permissions")
+                info("location, camera, microphone and notifications: each site asks first, and grove remembers your answer")
+                section("site data")
+                option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
+                info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
+                option("delete history and site data now", false) { confirmClear = true }
+                info("ads, trackers, scam, phishing, 18+ and crypto-mining sites are blocked by groveguard and ublock origin · no telemetry, no studies, no ai, no vpn, no sponsored content")
+            }
+            "media & downloads" -> {
+                section("background play")
+                option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
+                info("keeps any audio or video playing when you leave grove or turn off the screen")
+                section("picture in picture")
+                listOf("any playing video, when you go home", "only full-screen video", "off (use ••• > pop out)").forEachIndexed { i, s ->
+                    val mode = if (i == 2) 0 else i + 1
+                    option(s, p.pip == mode) { p.pip = mode }
+                }
+                section("mini player")
+                option("mini player button on videos: " + if (p.miniBtn == 1) "on" else "off", false) { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
+                info("tap the small button on a video and it floats in a corner while you keep reading; drag it anywhere, ✕ puts it back")
+                section("downloads")
+                listOf("grove downloads files", "use another app (a download manager)").forEachIndexed { i, s -> option(s, p.downloader == i) { p.downloader = i } }
+            }
+            "favorites" -> {
+                section("backup")
+                option("back up favorites", false) { backup.launch("grove-favorites.json") }
+                option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
+                info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
+                section("automatic backup")
+                val folder = vm.backupFolder
+                option("automatic backup: " + (folder?.let { "on, in \"$it\"" } ?: "off"), false) { if (folder == null) autoDir.launch(null) else vm.setBackupFolder(null) }
+                info("pick a folder once; grove then keeps grove-favorites.json there up to date every time your favorites change")
+            }
+            "troubleshooting & about" -> {
+                section("troubleshooting")
+                option("reset web engine", false) {
+                    p.sp.edit().putBoolean("resetEngine", true).commit()
+                    val ctx2 = ctx.applicationContext
+                    val i = ctx2.packageManager.getLaunchIntentForPackage(ctx2.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    ctx2.startActivity(i)
+                    Runtime.getRuntime().exit(0)
+                }
+                info("if websites show black or won't load: starts the web engine fresh. you'll be signed out of websites; favorites, history, saved pages and settings stay")
+                section("about")
+                info("grove browser $version · gecko engine")
+            }
         }
-        option("zoom on every website: " + if (p.forceZoom == 1) "on" else "off", false) { p.forceZoom = 1 - p.forceZoom; vm.applyPrefs() }
-        info("lets you pinch to zoom even on sites that try to stop it")
-        section("secure connections (https)")
-        listOf("https first (recommended)", "https only: warn before any http page", "allow http").forEachIndexed { i, s ->
-            option(s, p.https == i) { p.https = i; Gecko.setHttps(i) }
-        }
-        info("switching between \"first\" and \"allow http\" applies after grove restarts")
-        section("open links in apps")
-        listOf("ask", "always", "never").forEachIndexed { i, s -> option(s, p.appLinks == i) { p.appLinks = i } }
-        info("e.g. youtube.com links can open the youtube app")
-        section("media")
-        option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
-        info("keeps any audio or video playing when you leave grove or turn off the screen")
-        option("mini player button on videos: " + if (p.miniBtn == 1) "on" else "off", false) { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
-        info("tap the small button on a video and it floats in a corner while you keep reading; drag it anywhere, ✕ puts it back")
-        section("downloads")
-        listOf("grove downloads files", "use another app (a download manager)").forEachIndexed { i, s -> option(s, p.downloader == i) { p.downloader = i } }
-        Text("picture in picture", fontSize = 17.sp, color = cs.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-        listOf("any playing video, when you go home", "only full-screen video", "off (use ••• > picture in picture)").forEachIndexed { i, s ->
-            val mode = if (i == 2) 0 else i + 1
-            option(s, p.pip == mode) { p.pip = mode }
-        }
-        section("favorites")
-        option("back up favorites", false) { backup.launch("grove-favorites.json") }
-        option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
-        val folder = vm.backupFolder
-        option("automatic backup: " + (folder?.let { "on, in \"$it\"" } ?: "off"), false) { if (folder == null) autoDir.launch(null) else vm.setBackupFolder(null) }
-        info("pick a folder once; grove then keeps grove-favorites.json there up to date every time your favorites change")
-        info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
-        section("secure dns (dns over https)")
-        option("off: use your network's dns", p.doh == 0) { p.doh = 0; vm.applyPrefs() }
-        DOH.forEachIndexed { i, (name, _) -> option(name, p.doh == i + 1) { p.doh = i + 1; vm.applyPrefs() } }
-        info("hides which sites you look up from your network provider. falls back to normal dns if the provider can't be reached")
-        section("site permissions")
-        info("location, camera, microphone and notifications: each site asks first, and grove remembers your answer")
-        section("default browser")
-        option("make grove your default browser", false) {
-            runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
-        }
-        section("troubleshooting")
-        option("reset web engine", false) {
-            p.sp.edit().putBoolean("resetEngine", true).commit()
-            val ctx2 = ctx.applicationContext
-            val i = ctx2.packageManager.getLaunchIntentForPackage(ctx2.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            ctx2.startActivity(i)
-            Runtime.getRuntime().exit(0)
-        }
-        info("if websites show black or won't load: starts the web engine fresh. you'll be signed out of websites; favorites, history, saved pages and settings stay")
-        section("privacy")
-        option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
-        info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
-        Text("website tracker blocker", fontSize = 17.sp, color = cs.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-        listOf("strict: trackers, fingerprinters, crypto-miners, social and cross-site cookies", "standard", "off").forEachIndexed { i, s ->
-            option(s, p.etp == i) { p.etp = i; Gecko.setEtp(i) }
-        }
-        info("the ••• menu shows how many trackers were blocked on the page · cookies are isolated per site")
-        info("ads, trackers, scam, phishing and crypto-mining sites blocked by ublock origin")
-        info("no telemetry, no studies or remote experiments, no ai, no vpn, no sponsored content")
-        option("extensions (groveguard, ublock origin, firefox add-ons)", false) { onAddons() }
-        option("delete history and site data", false) { confirmClear = true }
-        section("about")
-        info("grove browser $version · gecko engine")
     }
 
     if (confirmClear) AlertDialog(

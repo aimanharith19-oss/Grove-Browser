@@ -100,7 +100,8 @@ import org.mozilla.geckoview.GeckoView
 
 enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS, SAVED }
 
-class MenuItem(val label: String, val action: () -> Unit)
+/** A menu entry; entries with an icon are tiles in the ••• grid, the rest are under "more". */
+class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector? = null, val action: () -> Unit)
 
 @Composable
 fun BrowserScreen(vm: BrowserVM) {
@@ -177,26 +178,38 @@ fun BrowserScreen(vm: BrowserVM) {
         val barTop = vm.prefs.barTop == 1
         val bar: @Composable () -> Unit = { if (!immersive && !standalone && overlay == Overlay.NONE) {
             val items = buildList {
-                add(MenuItem("tabs") { vm.snapshot(); overlay = Overlay.TABS })
+                val web = !t.home && Urls.isWeb(t.url)
+                // tiles (5 per row): the things used every day
+                add(MenuItem("tabs", androidx.compose.material.icons.Icons.Default.List) { vm.snapshot(); overlay = Overlay.TABS })
+                add(MenuItem("favorites", androidx.compose.material.icons.Icons.Default.Star) { overlay = Overlay.FAVORITES })
+                add(MenuItem("recent", androidx.compose.material.icons.Icons.Default.DateRange) { overlay = Overlay.RECENT })
+                add(MenuItem("downloads", androidx.compose.material.icons.Icons.Default.KeyboardArrowDown) { vm.openDownloads() })
+                add(MenuItem("settings", androidx.compose.material.icons.Icons.Default.Settings) { overlay = Overlay.SETTINGS })
+                add(MenuItem("inprivate", androidx.compose.material.icons.Icons.Default.Lock) { vm.newTab(private = true) })
+                if (!t.home) add(MenuItem("share", androidx.compose.material.icons.Icons.Default.Share) { share(ctx, t.url) })
+                if (!t.home) add(MenuItem("find", androidx.compose.material.icons.Icons.Default.Search) { find = true })
+                if (web) add(MenuItem("reader", androidx.compose.material.icons.Icons.Default.Menu) { vm.reader(t, "view") })
+                if (t.videoPlaying || t.playing) add(MenuItem("pop out", androidx.compose.material.icons.Icons.Default.PlayArrow) { vm.enterPip?.invoke() })
+                // under "more"
                 if (vm.closed.isNotEmpty()) add(MenuItem("reopen closed tab") { vm.reopenClosed() })
-                add(MenuItem("new inprivate tab") { vm.newTab(private = true) })
-                add(MenuItem("recent") { overlay = Overlay.RECENT })
-                add(MenuItem("favorites") { overlay = Overlay.FAVORITES })
                 if (vm.saved.items.isNotEmpty()) add(MenuItem("saved pages") { overlay = Overlay.SAVED })
-                if (!t.home) {
-                    val existing = vm.bookmarks.items.firstOrNull { it.url == t.url }
-                    add(MenuItem(if (existing != null) "edit favorite" else "add to favorites") {
-                        editBm = existing ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url)
-                    })
-                    add(MenuItem("share page") { share(ctx, t.url) })
-                    add(MenuItem("find on page") { find = true })
-                    if (Urls.isWeb(t.url)) {
-                        if (menu && t.trackers > 0) add(MenuItem("${t.trackers} trackers blocked here") { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
-                        add(MenuItem("reader view") { vm.reader(t, "view") })
-                        add(MenuItem("save for offline reading") { vm.reader(t, "save") })
-                        add(MenuItem("save as pdf") { vm.savePdf(t) })
-                        add(MenuItem("print") { vm.print(t) })
-                    }
+                if (web) {
+                    add(MenuItem("save for offline reading") { vm.reader(t, "save") })
+                    add(MenuItem("save as pdf") { vm.savePdf(t) })
+                    add(MenuItem("print") { vm.print(t) })
+                }
+                if (!t.home) add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
+                if (web) {
+                    if (t.manifest != null) add(MenuItem("install app") { vm.installWebApp(t) })
+                    add(MenuItem("pin to start") { pin(ctx, t) })
+                    if (t.trackers > 0) add(MenuItem("${t.trackers} trackers blocked here") { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
+                }
+                add(MenuItem("extensions") { overlay = Overlay.ADDONS })
+                if (vm.prefs.clearOnQuit == 1) add(MenuItem("quit") { vm.clearData(); activity.finishAndRemoveTask() })
+            }
+            val favorite: (() -> Unit)? = if (t.home) null else {
+                { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
+            }
                     if (t.videoPlaying || t.playing) add(MenuItem("picture in picture") { vm.enterPip?.invoke() })
                     add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
                     if (Urls.isWeb(t.url)) {
@@ -213,7 +226,7 @@ fun BrowserScreen(vm: BrowserVM) {
                 onEditing = { editing = it; if (it) menu = false else query = "" },
                 onQuery = { query = it },
                 onGo = { vm.go(it); focus.clearFocus() },
-                onMenu = { menu = it },
+                onMenu = { menu = it }, onFavorite = favorite, isFavorite = vm.bookmarks.items.any { it.url == t.url },
                 onTabs = { vm.snapshot(); overlay = Overlay.TABS })
         } }
         if (barTop) bar()
@@ -305,8 +318,9 @@ private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
 private fun AppBar(
     vm: BrowserVM, t: Tab, editing: Boolean, menu: Boolean, items: List<MenuItem>,
     onEditing: (Boolean) -> Unit, onQuery: (String) -> Unit, onGo: (String) -> Unit,
-    onMenu: (Boolean) -> Unit, onTabs: () -> Unit,
+    onMenu: (Boolean) -> Unit, onTabs: () -> Unit, onFavorite: (() -> Unit)? = null, isFavorite: Boolean = false,
 ) {
+    var more by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
     val bar by animateColorAsState(barColor(t), wp(300), label = "bar")
     val fg = if (bar.luminance() > 0.5f) Color.Black else Color.White
@@ -340,18 +354,39 @@ private fun AppBar(
         AnimatedVisibility(menu && !editing, enter = expandVertically(wp(300)) + fadeIn(wp(200)), exit = shrinkVertically(wp(200)) + fadeOut(wp(120))) {
             Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 val loading = t.progress in 1..99
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                // row 1: back, forward, reload, favorite, new tab
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     RoundBtn("←", "back", fg, t.canBack) { t.session.goBack(); onMenu(false) }
                     RoundBtn("→", "forward", fg, t.canFwd) { t.session.goForward(); onMenu(false) }
                     RoundBtn(if (loading) "✕" else "↻", if (loading) "stop" else "refresh", fg, !t.home) {
                         if (loading) t.session.stop() else t.session.reload(); onMenu(false)
                     }
+                    RoundBtn(if (isFavorite) "★" else "☆", "favorite", fg, onFavorite != null) { onMenu(false); onFavorite?.invoke() }
                     RoundBtn("+", "new tab", fg, true) { vm.newTab(); onMenu(false) }
                 }
-                items.forEach { item ->
-                    Text(item.label, color = fg, fontSize = 20.sp, fontWeight = FontWeight.Light,
-                        modifier = Modifier.fillMaxWidth().clickable { onMenu(false); item.action() }
-                            .padding(horizontal = 20.dp, vertical = 9.dp))
+                // tiles, 5 per row
+                val tiles = items.filter { it.icon != null }
+                tiles.chunked(5).forEach { row ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        row.forEach { item ->
+                            Column(Modifier.weight(1f).clickable { onMenu(false); item.action() }.padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                androidx.compose.material3.Icon(item.icon!!, null, tint = fg, modifier = Modifier.size(24.dp))
+                                Text(item.label, color = fg, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                        repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                val rest = items.filter { it.icon == null }
+                if (rest.isNotEmpty()) {
+                    Text(if (more) "less" else "more…", color = fg.copy(alpha = 0.8f), fontSize = 16.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { more = !more }.padding(horizontal = 20.dp, vertical = 10.dp))
+                    if (more) rest.forEach { item ->
+                        Text(item.label, color = fg, fontSize = 19.sp, fontWeight = FontWeight.Light,
+                            modifier = Modifier.fillMaxWidth().clickable { onMenu(false); item.action() }
+                                .padding(horizontal = 24.dp, vertical = 8.dp))
+                    }
                 }
             }
         }

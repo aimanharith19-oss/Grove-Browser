@@ -512,11 +512,15 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         if (m.optString("t") == "theme") t.theme = parseColor(m.optString("c"))
                         if (m.optString("t") == "reader") readerResult(t, m)
                         if (m.optString("t") == "video") {
-                            t.videoPlaying = m.optBoolean("playing")
+                            t.videoFrames[port] = m.optBoolean("playing")
+                            t.videoPlaying = t.videoFrames.values.any { it }
                             if (m.optLong("w") > 0 && m.optLong("h") > 0) { t.videoW = m.optLong("w"); t.videoH = m.optLong("h") }
                         }
                     }
-                    override fun onDisconnect(port: WebExtension.Port) { t.ports -= port }
+                    override fun onDisconnect(port: WebExtension.Port) {
+                        t.ports -= port
+                        if (t.videoFrames.remove(port) != null) t.videoPlaying = t.videoFrames.values.any { it }
+                    }
                 })
                 runCatching { port.postMessage(JSONObject().put("bg", prefs.bgPlay == 1).put("mini", prefs.miniBtn == 1)) }
             }
@@ -649,7 +653,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         }
         s.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
-                t.progress = 5; t.manifest = null; t.videoPlaying = false; t.trackers = 0
+                t.progress = 5; t.manifest = null; t.videoPlaying = false; t.videoFrames.clear(); t.trackers = 0
                 if (Urls.host(url) != Urls.host(t.url)) t.theme = null
             }
             override fun onProgressChange(session: GeckoSession, progress: Int) { t.progress = progress }

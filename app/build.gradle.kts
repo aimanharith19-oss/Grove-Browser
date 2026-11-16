@@ -13,8 +13,8 @@ android {
         applicationId = "app.grove.browser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 900000010
-        versionName = "1.3.4"
+        versionCode = 900000011
+        versionName = "1.3.5"
     }
     // One APK per CPU type: each is a fraction of a universal APK.
     splits {
@@ -67,6 +67,7 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.09.00"))
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.core:core-ktx:1.17.0")

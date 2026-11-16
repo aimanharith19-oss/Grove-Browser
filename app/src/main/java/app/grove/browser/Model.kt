@@ -42,6 +42,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var videoH = 9L
     /** Connections to the Grove helper script in this tab's frames (picture-in-picture, background play). */
     val ports = mutableListOf<WebExtension.Port>()
+    /** Which page frames have a video playing (a frame without video must not cancel one that has). */
+    val videoFrames = HashMap<WebExtension.Port, Boolean>()
     /** Web app manifest of the current page, if it has one (PWA). */
     var manifest by mutableStateOf<JSONObject?>(null)
     /** The website's theme colour (meta theme-color), used to tint Grove's bars. */
