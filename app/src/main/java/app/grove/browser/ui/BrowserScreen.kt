@@ -208,7 +208,7 @@ fun BrowserScreen(vm: BrowserVM) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GeckoHost(vm, t.session)
             // Home fades in and out; screens slide up a little as they appear (Windows Phone motion).
-            AnimatedVisibility(t.home && !standalone, enter = fadeIn(wp(260)), exit = fadeOut(wp(140))) {
+            androidx.compose.animation.AnimatedVisibility(visible = t.home && !standalone, enter = fadeIn(wp(260)), exit = fadeOut(wp(140))) {
                 HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
                     onAdd = { editBm = Bookmark(System.currentTimeMillis(), "", "") })
             }
