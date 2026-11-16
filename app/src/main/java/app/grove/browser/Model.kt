@@ -117,7 +117,7 @@ class Prefs(ctx: Context) {
     /** 1 = allow pinch zoom on every website. */
     var forceZoom by IntPref(sp, "forceZoom", 1)
     /** 1 = hide Android's status bar and navigation bar while browsing (swipe from the edge to see them). */
-    var immersive by IntPref(sp, "immersive", 1)
+    var immersive by IntPref(sp, "immersive2", 0)
     /** 0 = Grove downloads files itself, 1 = hand downloads to another app (a download manager). */
     var downloader by IntPref(sp, "downloader", 0)
     /** Tracking protection: 0 strict, 1 standard, 2 off. */

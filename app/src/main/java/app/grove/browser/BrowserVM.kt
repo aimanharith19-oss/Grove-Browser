@@ -162,7 +162,6 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         if (prev !== t && prev != null && prev in tabs && prev.session.isOpen) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
         cur = t
         // The tab you're looking at gets top priority from Android, so it stays smooth while others idle.
-        runCatching { prev?.takeIf { it !== t && it.session.isOpen }?.session?.setPriorityHint(GeckoSession.PRIORITY_DEFAULT); t.session.setPriorityHint(GeckoSession.PRIORITY_HIGH) }
         t.session.setActive(true)
         ctl.setTabActive(t.session, true)
         if (t.pending) { t.pending = false; if (!t.home) t.session.loadUri(t.url) }

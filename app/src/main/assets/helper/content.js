@@ -232,4 +232,36 @@
       send({ t: "reader", mode, title, url: location.href, html });
     } catch (e) { send({ t: "reader", mode, err: "couldn't make a reader page here" }); }
   }
+
+  // ---------- pull to refresh: pull down at the very top of the page, let go when the bar is full
+  if (window === window.top) {
+    let y0 = null, x0 = 0, bar = null, full = false;
+    const atTop = () => (document.scrollingElement || document.documentElement).scrollTop <= 0 && scrollY <= 0;
+    const scrolledInside = el => { for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) { if (el.scrollTop > 0) return true; } return false; };
+    const show = p => {
+      if (!bar) {
+        bar = document.createElement("div");
+        const st = { position: "fixed", left: "0", top: "0", height: "4px", width: "100%", background: "#60a917", "z-index": "2147483647", "transform-origin": "center", "pointer-events": "none", transition: "none" };
+        for (const k in st) bar.style.setProperty(k, st[k], "important");
+        document.documentElement.appendChild(bar);
+      }
+      bar.style.setProperty("transform", "scaleX(" + p + ")", "important");
+      bar.style.setProperty("opacity", String(0.4 + p * 0.6), "important");
+    };
+    const hide = () => { if (bar) { bar.remove(); bar = null; } };
+    addEventListener("touchstart", e => {
+      y0 = e.touches.length === 1 && atTop() && !scrolledInside(e.target) ? e.touches[0].clientY : null;
+      x0 = e.touches.length ? e.touches[0].clientX : 0; full = false;
+    }, { passive: true, capture: true });
+    addEventListener("touchmove", e => {
+      if (y0 === null) return;
+      const dy = e.touches[0].clientY - y0, dx = Math.abs(e.touches[0].clientX - x0);
+      if (e.touches.length !== 1 || !atTop() || dx > dy) { y0 = null; hide(); return; }
+      if (dy < 24) return;
+      const p = Math.min(1, (dy - 24) / 140); full = p >= 1; show(p);
+    }, { passive: true, capture: true });
+    const end = () => { const go = y0 !== null && full; y0 = null; hide(); if (go) location.reload(); };
+    addEventListener("touchend", end, { passive: true, capture: true });
+    addEventListener("touchcancel", () => { y0 = null; hide(); }, { passive: true, capture: true });
+  }
 })();
