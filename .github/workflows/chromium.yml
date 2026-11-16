@@ -43,9 +43,15 @@ jobs:
       - name: Rebrand as Grove Browser
         if: env.SKIP != '1'
         run: |
-          pip install --quiet pillow
-          python3 chromium/rebrand.py titanium.apk unsigned.apk chromium/groveguard $RUNNER_TEMP/key.pem chromium/icon
-          rm $RUNNER_TEMP/key.pem
+          pip install --quiet pillow pycryptodome
+          npm pack @mozilla/readability@0.6.0 --silent
+          tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > chromium/grove-ext/Readability.js
+          python3 chromium/derive_key.py $RUNNER_TEMP/key.pem grove-extension $RUNNER_TEMP/key2.pem
+          python3 chromium/rebrand.py titanium.apk unsigned.apk chromium/icon \
+            groveguard=chromium/groveguard=$RUNNER_TEMP/key.pem grove=chromium/grove-ext=$RUNNER_TEMP/key2.pem
+          rm $RUNNER_TEMP/key.pem $RUNNER_TEMP/key2.pem
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "--- colour resources"; $BT/aapt2 dump resources titanium.apk | grep -A1 -E 'color/(baseline_primary|baseline_neutral|default_bg_color|toolbar_background_primary|default_control_color_active|light_active_color|default_icon_color_accent)' | head -80
       - name: Align and sign
         if: env.SKIP != '1'
         run: |

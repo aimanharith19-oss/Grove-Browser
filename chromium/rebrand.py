@@ -10,7 +10,7 @@ https://github.com/jqssun/android-titanium-browser) into Grove Browser without r
   * Groveguard (ads, trackers, 18+, dangerous sites) bundled as a built-in extension, signed with the Grove key
   * signed with the Grove key
 
-usage: rebrand.py IN.apk OUT-unsigned.apk GROVEGUARD_DIR KEY.pem ICON_DIR
+usage: rebrand.py IN.apk OUT-unsigned.apk ICON_DIR NAME=EXTENSION_DIR=KEY.pem [...]
 Then zipalign + apksigner (see .github/workflows/chromium.yml).
 """
 import io, json, hashlib, os, struct, subprocess, sys, tempfile, zipfile
@@ -256,12 +256,16 @@ def resized(icon_dir, kind, size):
 
 # ------------------------------------------------------------------------------------------------ main
 def main():
-    src, dst, gg_dir, key_pem, icon_dir = sys.argv[1:6]
+    src, dst, icon_dir = sys.argv[1:4]
     zin = zipfile.ZipFile(src)
     icons = icon_files(src)
     print("icon files:", icons)
-    crx, ext_id, version = make_crx(gg_dir, key_pem)
-    print("groveguard", ext_id, version, len(crx), "bytes")
+    exts = []
+    for spec in sys.argv[4:]:
+        name, d, key_pem = spec.split("=")
+        crx, ext_id, version = make_crx(d, key_pem)
+        print("bundled extension", name, ext_id, version, len(crx), "bytes")
+        exts.append((name, crx, ext_id, version))
     with zipfile.ZipFile(dst, "w") as zout:
         for info in zin.infolist():
             name = info.filename
@@ -273,7 +277,8 @@ def main():
             elif name == "resources.arsc":
                 data, n = patch_arsc(data); print("resource strings changed:", n)
             elif name == "assets/extensions/bundled.json":
-                idx = json.loads(data); idx[ext_id] = {"external_crx": "groveguard.crx", "external_version": version}
+                idx = json.loads(data)
+                for name, crx, ext_id, version in exts: idx[ext_id] = {"external_crx": name + ".crx", "external_version": version}
                 data = (json.dumps(idx, indent=2) + "\n").encode(); print("bundled:", list(idx))
             elif name in icons and (data[:8] == b"\x89PNG\r\n\x1a\n" or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")):
                 # resource files have short obfuscated names without extensions: recognise the image by its first bytes
@@ -291,8 +296,9 @@ def main():
                 print("icon left as is:", name)
             zi = zipfile.ZipInfo(name, info.date_time); zi.compress_type = info.compress_type; zi.external_attr = info.external_attr
             zout.writestr(zi, data)
-        zi = zipfile.ZipInfo("assets/extensions/groveguard.crx", (2001, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED
-        zout.writestr(zi, crx)
+        for name, crx, _, _ in exts:
+            zi = zipfile.ZipInfo("assets/extensions/" + name + ".crx", (2001, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED
+            zout.writestr(zi, crx)
 
 
 if __name__ == "__main__":

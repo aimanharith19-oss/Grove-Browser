@@ -6,3 +6,4 @@ local.properties
 app/src/main/assets/extensions/
 app/src/main/assets/ubo.xpi
 app/src/main/assets/helper/Readability.js
+chromium/grove-ext/Readability.js
