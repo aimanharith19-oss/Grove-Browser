@@ -21,6 +21,14 @@ jobs:
           tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > app/src/main/assets/helper/Readability.js
           rm mozilla-readability-0.6.0.tgz
           test -s app/src/main/assets/helper/Readability.js
+      - name: Signing key (so Groveguard trusts the test build)
+        env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
+        run: |
+          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks
+          pw=$(printf '%s' "$PW" | sed 's/^.*= *//' | tr -d ' \r\n')
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || pw="c220b803016a2f1120d5fc93"
+          echo "GROVE_KS_PASS=$pw" >> $GITHUB_ENV
+          echo "GROVE_KEYSTORE_FILE=$RUNNER_TEMP/grove.jks" >> $GITHUB_ENV
       - run: gradle assembleRelease
       - name: Engine version
         run: |

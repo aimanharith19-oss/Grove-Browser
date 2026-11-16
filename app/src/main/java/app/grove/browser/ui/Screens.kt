@@ -154,7 +154,12 @@ fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
                 val shot = tab.thumb
                 // Swipe a tab left or right to close it.
                 var dx by remember(tab) { mutableFloatStateOf(0f) }
-                Box(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.85f)
+                // Each open tab is drawn as a small window: a title bar (site icon, title, ✕) over a picture of the page.
+                // The tab you're on has an accent title bar and frame; a new tab shows "new tab" instead of a picture.
+                val ctx = LocalContext.current
+                val bar = if (active) cs.primary else if (tab.private) Color(0xFF4A2C6E) else cs.surfaceContainerHighest
+                val barFg = if (active || tab.private) Color.White else cs.onSurface
+                Column(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.8f)
                     .graphicsLayer { translationX = dx; alpha = 1f - (abs(dx) / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.85f) }
                     .pointerInput(tab) {
                         detectHorizontalDragGestures(
@@ -162,22 +167,33 @@ fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
                             onDragCancel = { dx = 0f },
                         ) { change, d -> change.consume(); dx += d }
                     }
-                    .background(if (active) cs.primary else cs.surfaceVariant)
-                    .then(if (active) Modifier.border(3.dp, cs.primary) else Modifier)
+                    .border(if (active) 3.dp else 1.dp, if (active) cs.primary else cs.onSurface.copy(alpha = 0.3f))
                     .clickable(interactionSource = src, indication = LocalIndication.current) { vm.select(tab); onClose() }) {
-                    val fg = if (active || shot != null) Color.White else cs.onSurface
-                    if (shot != null) Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .background(if (shot != null) androidx.compose.ui.graphics.lerp(Color.Black, cs.primary, if (active) 0.6f else 0.3f).copy(alpha = 0.88f) else Color.Transparent)
-                        .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
-                        if (tab.private) Text("inprivate", fontSize = 11.sp, color = fg)
-                        Text(tab.title.ifBlank { if (tab.home) "new tab" else Urls.host(tab.url) }, color = fg,
-                            fontSize = if (shot != null) 14.sp else 17.sp, maxLines = if (shot != null) 1 else 4, overflow = TextOverflow.Ellipsis)
-                        Text(if (tab.home) "" else Urls.host(tab.url), color = fg, fontSize = 11.sp, maxLines = 1)
+                    // title bar
+                    Row(Modifier.fillMaxWidth().height(34.dp).background(bar).padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val icon = if (tab.home) null else Icons.get(ctx, tab.url)
+                        if (icon != null) Box(Modifier.size(18.dp).background(Color.White), contentAlignment = Alignment.Center) { Image(icon, null, Modifier.size(14.dp)) }
+                        else Text(if (tab.private) "◐" else if (tab.home) "+" else "•", color = barFg, fontSize = 14.sp)
+                        Text(if (tab.home) "new tab" else tab.title.ifBlank { Urls.host(tab.url) }, color = barFg, fontSize = 13.sp, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                        Text("✕", color = barFg, fontSize = 16.sp, modifier = Modifier.clickable { vm.closeTab(tab) }.padding(horizontal = 10.dp, vertical = 6.dp))
                     }
-                    Text("✕", color = fg, fontSize = 18.sp,
-                        modifier = Modifier.align(Alignment.TopEnd).background(if (shot != null) Color.Black.copy(alpha = 0.55f) else Color.Transparent)
-                            .clickable { vm.closeTab(tab) }.padding(horizontal = 10.dp, vertical = 6.dp))
+                    // the page
+                    Box(Modifier.fillMaxWidth().weight(1f).background(cs.background)) {
+                        when {
+                            shot != null && !tab.home -> Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                            tab.home -> Box(Modifier.fillMaxSize().tintBackground(), contentAlignment = Alignment.Center) {
+                                Text("new tab", color = cs.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Light)
+                            }
+                            else -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(Urls.host(tab.url), color = cs.onSurfaceVariant, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (active) Text("now", color = Color.White, fontSize = 11.sp,
+                            modifier = Modifier.align(Alignment.BottomEnd).background(cs.primary).padding(horizontal = 6.dp, vertical = 2.dp))
+                        if (tab.private) Text("inprivate", color = Color.White, fontSize = 11.sp,
+                            modifier = Modifier.align(Alignment.BottomStart).background(Color(0xFF4A2C6E)).padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
                 }
             }
         }

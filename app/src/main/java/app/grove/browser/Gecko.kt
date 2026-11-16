@@ -111,7 +111,7 @@ object Gecko {
                 Thread {
                     val code = runCatching {
                         ctx.contentResolver.call(android.net.Uri.parse("content://org.grove.guard.status"), "extLink", null, null)?.getString("code")
-                    }.getOrNull()
+                    }.onFailure { Log.w("Grove", "Groveguard link: ${it.javaClass.simpleName}: ${it.message}") }.getOrNull()
                     if (code.isNullOrBlank()) return@Thread // Groveguard isn't installed (or is too old)
                     main.post {
                         runCatching { port.postMessage(org.json.JSONObject().put("code", code).put("name", "Grove Browser")) }
