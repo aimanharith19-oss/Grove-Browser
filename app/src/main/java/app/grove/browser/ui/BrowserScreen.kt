@@ -220,18 +220,6 @@ fun BrowserScreen(vm: BrowserVM) {
             val favorite: (() -> Unit)? = if (t.home) null else {
                 { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
             }
-                    if (t.videoPlaying || t.playing) add(MenuItem("picture in picture") { vm.enterPip?.invoke() })
-                    add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
-                    if (Urls.isWeb(t.url)) {
-                        if (t.manifest != null) add(MenuItem("install app") { vm.installWebApp(t) })
-                        add(MenuItem("pin to start") { pin(ctx, t) })
-                    }
-                }
-                add(MenuItem("downloads") { vm.openDownloads() })
-                add(MenuItem("extensions") { overlay = Overlay.ADDONS })
-                add(MenuItem("settings") { overlay = Overlay.SETTINGS })
-                if (vm.prefs.clearOnQuit == 1) add(MenuItem("quit") { vm.clearData(); activity.finishAndRemoveTask() })
-            }
             AppBar(vm, t, editing, menu, items,
                 onEditing = { editing = it; if (it) menu = false else query = "" },
                 onQuery = { query = it },
