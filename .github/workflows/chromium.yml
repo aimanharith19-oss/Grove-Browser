@@ -1,0 +1,37 @@
+name: chromium
+on:
+  push: { branches: [chromium] }
+permissions: { contents: write }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Download latest Titanium (Chromium fork with extensions)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh api repos/jqssun/android-titanium-browser/releases/latest --jq '.tag_name, (.assets[] | .name + " " + (.size|tostring))'
+          url=$(gh api repos/jqssun/android-titanium-browser/releases/latest --jq '.assets[] | select(.name|endswith("arm64-v8a.apk")) | .browser_download_url')
+          curl -fsSL "$url" -o titanium.apk
+          ls -la titanium.apk
+      - name: Inspect
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1); echo $BT
+          $BT/aapt2 dump badging titanium.apk | head -30
+          $BT/aapt2 dump xmltree --file AndroidManifest.xml titanium.apk | grep -nE 'package=|authorities|android:label|android:icon|roundIcon|permission.*jqssun|versionCode|sharedUserId' | head -60
+          $BT/aapt2 dump resources titanium.apk | grep -nE 'app_icon|ic_launcher|app_name|themed_app_icon' | head -40
+          $BT/aapt2 dump resources titanium.apk | grep -c 'resource 0x' 
+          unzip -l titanium.apk | grep -E 'assets/extensions|lib/' | head -30
+          unzip -l titanium.apk | awk '{print $4}' | grep '^res/' | head -20
+          unzip -l titanium.apk | tail -1
+          $BT/apksigner verify --print-certs titanium.apk | head -5
+          python3 - <<'PY'
+          import zipfile
+          z=zipfile.ZipFile('titanium.apk')
+          for n in ['assets/extensions/bundled.json']:
+              try: print(n, z.read(n)[:1500].decode())
+              except KeyError: print('missing', n)
+          print([ (i.filename, i.compress_type) for i in z.infolist() if i.filename.startswith('lib/')][:6])
+          PY
