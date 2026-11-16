@@ -30,6 +30,10 @@ open class MainActivity : ComponentActivity() {
     private var ready = false
     private var pendingFile: Pair<FilePrompt, GeckoResult<PromptResponse>>? = null
     private val pickOne = registerForActivityResult(ActivityResultContracts.OpenDocument()) { finishFile(listOfNotNull(it)) }
+    private var permDone: ((Boolean) -> Unit)? = null
+    private val askPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        permDone?.invoke(res.isNotEmpty() && res.values.all { it }); permDone = null
+    }
     private val pickMany = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { finishFile(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +56,11 @@ open class MainActivity : ComponentActivity() {
         }
         vm.external = { intent, fallback ->
             runCatching { startActivity(intent) }.onFailure { if (fallback != null) vm.go(fallback) else vm.toast("no app can open this link") }
+        }
+        vm.androidPerms = { perms, done ->
+            permDone?.invoke(false)
+            permDone = done
+            runCatching { askPerms.launch(perms) }.onFailure { permDone = null; done(false) }
         }
         vm.enterPip = { if (!isInPictureInPictureMode) runCatching { enterPictureInPictureMode(pipParams()) } }
         ready = true
@@ -142,7 +151,7 @@ open class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         pendingFile?.let { (p, r) -> r.complete(p.dismiss()) }
         pendingFile = null
-        if (ready) { vm.filePicker = null; vm.external = null; vm.enterPip = null }
+        if (ready) { vm.filePicker = null; vm.external = null; vm.enterPip = null; vm.androidPerms = null; vm.capture = null }
         super.onDestroy()
     }
 }

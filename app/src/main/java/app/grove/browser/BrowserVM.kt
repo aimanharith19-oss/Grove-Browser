@@ -48,10 +48,16 @@ import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.StorageController
 import org.mozilla.geckoview.WebResponse
 import java.io.File
+import androidx.compose.ui.graphics.asImageBitmap
 
 class PendingPrompt(val p: BasePrompt, val res: GeckoResult<PromptResponse>)
 
 class AppLinkAsk(val intent: Intent, val label: String, val url: String, val tab: Tab)
+
+/** A website asking for location, camera, microphone or notifications. */
+class PermAsk(val host: String, val what: String, val done: (Boolean) -> Unit)
+
+class Closed(val title: String, val url: String)
 
 class BrowserVM(app: Application, val webApp: String? = null, private val webScope: String? = null) : AndroidViewModel(app) {
     private val ctx: Context get() = getApplication()
@@ -75,6 +81,13 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     var pip by mutableStateOf(false); private set
     var appLink by mutableStateOf<AppLinkAsk?>(null)
     var needNotifPermission by mutableStateOf(false)
+    var permAsk by mutableStateOf<PermAsk?>(null)
+    /** Asks Android for app permissions (set by the activity). */
+    var androidPerms: ((Array<String>, (Boolean) -> Unit) -> Unit)? = null
+    /** Takes a picture of the page on screen (set by the browser view). */
+    var capture: (() -> GeckoResult<Bitmap>?)? = null
+    /** Recently closed tabs, newest first. */
+    val closed = mutableStateListOf<Closed>()
     /** Opens picture-in-picture now (set by the activity). */
     var enterPip: (() -> Unit)? = null
     private var skipAppCheck: String? = null
@@ -150,6 +163,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     fun closeTab(t: Tab) {
         val i = tabs.indexOf(t)
         if (i < 0) return
+        if (!t.private && Urls.isWeb(t.url)) { closed.add(0, Closed(t.title, t.url)); while (closed.size > 15) closed.removeAt(closed.lastIndex) }
         tabs.removeAt(i)
         if (MediaHub.session === t.media && t.media != null) MediaHub.update(null, "", false)
         tabs.forEach { if (it.parent === t) it.parent = null }
@@ -160,6 +174,53 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         if (tabs.isEmpty()) newTab()
         // Close after the view has swapped to another session.
         main.postDelayed({ runCatching { t.session.close() } }, 400)
+    }
+
+    fun reopenClosed() { closed.removeFirstOrNull()?.let { newTab(it.url) } }
+
+    /** Screenshot of the current page: tab preview, and the home tile if the page is a favorite. */
+    fun snapshot() {
+        val t = cur ?: return
+        if (t.private || t.home || !Urls.isWeb(t.url) || t.progress != 100) return
+        val url = t.url
+        runCatching {
+            capture?.invoke()?.accept({ bmp ->
+                if (bmp == null || bmp.width < 50 || t.url != url) return@accept
+                val small = runCatching { Thumbs.shrink(bmp) }.getOrNull() ?: return@accept
+                t.thumb = small.asImageBitmap()
+                val k = Thumbs.key(url)
+                bookmarks.items.firstOrNull { Thumbs.key(it.url) == k }?.let { Thumbs.put(ctx, it.url, small) }
+            }, { })
+        }
+    }
+
+    fun applyPrefs() = Gecko.applyPrefs(prefs.textSize, prefs.forceZoom == 1, prefs.doh)
+
+    /** Saves the page as a PDF file in Downloads. */
+    fun savePdf(t: Tab) {
+        if (!Urls.isWeb(t.url)) return
+        toast("making pdf…")
+        val name = (t.title.ifBlank { Urls.host(t.url) }).replace(Regex("[\\\\/:*?\"<>|\\n]"), " ").trim().take(60).ifBlank { "page" } + ".pdf"
+        t.session.saveAsPdf().accept({ input ->
+            if (input == null) { toast("couldn't make a pdf of this page"); return@accept }
+            thread {
+                val ok = runCatching {
+                    val v = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    }
+                    val uri = ctx.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v)!!
+                    ctx.contentResolver.openOutputStream(uri)!!.use { out -> input.use { it.copyTo(out) } }
+                }.isSuccess
+                main.post { toast(if (ok) "saved to downloads: $name" else "couldn't save the pdf") }
+            }
+        }, { main.post { toast("couldn't make a pdf of this page") } })
+    }
+
+    fun print(t: Tab) { runCatching { t.session.printPageContent() }.onFailure { toast("can't print this page") } }
+
+    fun openDownloads() {
+        external?.invoke(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), null)
     }
 
     fun go(input: String) {
@@ -378,16 +439,17 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         val i = bookmarks.items.indexOfFirst { it.id == b.id }
         if (i >= 0) bookmarks.items[i] = fixed else bookmarks.items.add(fixed)
         bookmarks.save()
+        snapshot() // the page on screen may be this favorite: take its picture for the home tile
     }
 
-    fun deleteBookmark(b: Bookmark) { bookmarks.items.removeAll { it.id == b.id }; bookmarks.save() }
+    fun deleteBookmark(b: Bookmark) { bookmarks.items.removeAll { it.id == b.id }; bookmarks.save(); Thumbs.remove(ctx, b.url) }
 
     private fun addVisit(t: Tab) {
         if (t.private || !Urls.isWeb(t.url)) return
         val l = history.items
         val v = Visit(t.title, t.url, System.currentTimeMillis())
         if (l.lastOrNull()?.url == t.url) l[l.lastIndex] = v else l.add(v)
-        while (l.size > 300) l.removeAt(0)
+        while (l.size > 2000) l.removeAt(0)
         history.save()
     }
 
@@ -493,6 +555,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 t.progress = 100
                 if (success) addVisit(t)
+                if (success) main.postDelayed({ if (t === cur && t.progress == 100) snapshot() }, 1500)
             }
         }
         s.contentDelegate = object : GeckoSession.ContentDelegate {
@@ -546,8 +609,49 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
             override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false; mediaChanged(t) }
             override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false; mediaChanged(t) }
         }
+        s.permissionDelegate = object : GeckoSession.PermissionDelegate {
+            private fun ask(what: String, uri: String, done: (Boolean) -> Unit) {
+                // Background tabs can't ask.
+                if (t !== cur) return done(false)
+                permAsk?.done?.invoke(false)
+                permAsk = PermAsk(Urls.host(uri), what, done)
+            }
+            override fun onContentPermissionRequest(
+                session: GeckoSession, perm: GeckoSession.PermissionDelegate.ContentPermission,
+            ): GeckoResult<Int>? {
+                val allow = GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
+                val deny = GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY
+                val what = when (perm.permission) {
+                    GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION -> "know your location"
+                    GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION -> "send you notifications"
+                    GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS -> "play protected (drm) video"
+                    GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE -> return GeckoResult.fromValue(allow)
+                    else -> return GeckoResult.fromValue(deny) // autoplay, tracking, storage access, local network…
+                }
+                val r = GeckoResult<Int>()
+                ask(what, perm.uri) { ok -> r.complete(if (ok) allow else deny) }
+                return r
+            }
+            override fun onAndroidPermissionsRequest(
+                session: GeckoSession, permissions: Array<String>?, callback: GeckoSession.PermissionDelegate.Callback,
+            ) {
+                val p = permissions?.takeIf { it.isNotEmpty() } ?: return callback.grant()
+                val req = androidPerms ?: return callback.reject()
+                req(p) { ok -> if (ok) callback.grant() else callback.reject() }
+            }
+            override fun onMediaPermissionRequest(
+                session: GeckoSession, uri: String,
+                video: Array<GeckoSession.PermissionDelegate.MediaSource>?, audio: Array<GeckoSession.PermissionDelegate.MediaSource>?,
+                callback: GeckoSession.PermissionDelegate.MediaCallback,
+            ) {
+                val cam = video?.firstOrNull { it.source == GeckoSession.PermissionDelegate.MediaSource.SOURCE_CAMERA }
+                val mic = audio?.firstOrNull { it.source == GeckoSession.PermissionDelegate.MediaSource.SOURCE_MICROPHONE }
+                if (cam == null && mic == null) return callback.reject()
+                val what = when { cam != null && mic != null -> "use your camera and microphone"; cam != null -> "use your camera"; else -> "use your microphone" }
+                ask(what, uri) { ok -> if (ok) callback.grant(cam, mic) else callback.reject() }
+            }
+        }
         Gecko.helper?.let { bindHelper(t, it) }
-        // No permission delegate: camera, mic, location and notifications are denied by default.
     }
 
     /** CSS colour (#rgb, #rrggbb, rgb()) from a page -> ARGB, ignoring transparent ones. */

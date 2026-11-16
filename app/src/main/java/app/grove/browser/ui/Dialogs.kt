@@ -203,6 +203,20 @@ fun InstallAddonDialog() {
     )
 }
 
+/** A website asking to use location, camera, microphone or notifications. */
+@Composable
+fun PermissionDialog(vm: BrowserVM) {
+    val a = vm.permAsk ?: return
+    fun done(ok: Boolean) { if (vm.permAsk === a) vm.permAsk = null; a.done(ok) }
+    AlertDialog(
+        onDismissRequest = { done(false) },
+        title = { Text("allow ${a.host}?", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = { Text("this site wants to ${a.what}. grove remembers your answer for this site; change it by deleting site data in settings.") },
+        confirmButton = { TextButton({ done(true) }) { Text("allow") } },
+        dismissButton = { TextButton({ done(false) }) { Text("block") } },
+    )
+}
+
 @Composable
 fun AppLinkDialog(vm: BrowserVM) {
     val a = vm.appLink ?: return

@@ -12,6 +12,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import app.grove.browser.Gecko
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -134,7 +145,7 @@ fun BrowserScreen(vm: BrowserVM) {
 
     val bg = MaterialTheme.colorScheme.background
     val tint = barColor(t)
-    val edge = if (overlay == Overlay.NONE && !t.home) tint else bg
+    val edge by animateColorAsState(if (overlay == Overlay.NONE && !t.home) tint else bg, wp(300), label = "edge")
     val view = LocalView.current
     SideEffect {
         WindowCompat.getInsetsController(activity.window, view).apply {
@@ -155,29 +166,11 @@ fun BrowserScreen(vm: BrowserVM) {
                     modifier = Modifier.clickable { if (t.canBack) t.session.goBack() else activity.finish() }.padding(4.dp))
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            GeckoHost(t.session)
-            if (t.home && !standalone) HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
-                onAdd = { editBm = Bookmark(System.currentTimeMillis(), "", "") })
-            if (editing && query.isNotBlank()) Suggestions(vm, query) { vm.go(it); focus.clearFocus() }
-            when (overlay) {
-                Overlay.TABS -> TabsScreen(vm) { overlay = Overlay.NONE }
-                Overlay.FAVORITES -> LinksScreen("favorites", vm.bookmarks.items.map { it.title to it.url },
-                    onOpen = { vm.go(it); overlay = Overlay.NONE }, onLong = { editBm = vm.bookmarks.items[it] })
-                Overlay.RECENT -> LinksScreen("recent", vm.history.items.asReversed().map { it.title to it.url },
-                    onOpen = { vm.go(it); overlay = Overlay.NONE }, onClear = { vm.clearHistory() })
-                Overlay.SETTINGS -> SettingsScreen(vm, onAddons = { overlay = Overlay.ADDONS }) { overlay = Overlay.NONE }
-                Overlay.ADDONS -> AddonsScreen(vm) { overlay = Overlay.NONE }
-                Overlay.NONE -> {}
-            }
-        }
-        if (standalone && !immersive && t.progress in 1..99) LinearProgressIndicator(
-            progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
-            color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
-        )
-        if (!immersive && !standalone && overlay == Overlay.NONE) {
+        val barTop = vm.prefs.barTop == 1
+        val bar: @Composable () -> Unit = { if (!immersive && !standalone && overlay == Overlay.NONE) {
             val items = buildList {
-                add(MenuItem("tabs") { overlay = Overlay.TABS })
+                add(MenuItem("tabs") { vm.snapshot(); overlay = Overlay.TABS })
+                if (vm.closed.isNotEmpty()) add(MenuItem("reopen closed tab") { vm.reopenClosed() })
                 add(MenuItem("new inprivate tab") { vm.newTab(private = true) })
                 add(MenuItem("recent") { overlay = Overlay.RECENT })
                 add(MenuItem("favorites") { overlay = Overlay.FAVORITES })
@@ -188,6 +181,10 @@ fun BrowserScreen(vm: BrowserVM) {
                     })
                     add(MenuItem("share page") { share(ctx, t.url) })
                     add(MenuItem("find on page") { find = true })
+                    if (Urls.isWeb(t.url)) {
+                        add(MenuItem("save as pdf") { vm.savePdf(t) })
+                        add(MenuItem("print") { vm.print(t) })
+                    }
                     if (t.videoPlaying || t.playing) add(MenuItem("picture in picture") { vm.enterPip?.invoke() })
                     add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
                     if (Urls.isWeb(t.url)) {
@@ -195,19 +192,51 @@ fun BrowserScreen(vm: BrowserVM) {
                         add(MenuItem("pin to start") { pin(ctx, t) })
                     }
                 }
+                add(MenuItem("downloads") { vm.openDownloads() })
                 add(MenuItem("extensions") { overlay = Overlay.ADDONS })
                 add(MenuItem("settings") { overlay = Overlay.SETTINGS })
+                if (vm.prefs.clearOnQuit == 1) add(MenuItem("quit") { vm.clearData(); activity.finishAndRemoveTask() })
             }
             AppBar(vm, t, editing, menu, items,
                 onEditing = { editing = it; if (it) menu = false else query = "" },
                 onQuery = { query = it },
                 onGo = { vm.go(it); focus.clearFocus() },
                 onMenu = { menu = it },
-                onTabs = { overlay = Overlay.TABS })
+                onTabs = { vm.snapshot(); overlay = Overlay.TABS })
+        } }
+        if (barTop) bar()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            GeckoHost(vm, t.session)
+            // Home fades in and out; screens slide up a little as they appear (Windows Phone motion).
+            AnimatedVisibility(t.home && !standalone, enter = fadeIn(wp(260)), exit = fadeOut(wp(140))) {
+                HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
+                    onAdd = { editBm = Bookmark(System.currentTimeMillis(), "", "") })
+            }
+            if (editing && query.isNotBlank()) Suggestions(vm, query) { vm.go(it); focus.clearFocus() }
+            AnimatedContent(overlay, transitionSpec = {
+                (fadeIn(wp(240)) + slideInVertically(wp(380)) { it / 12 }) togetherWith fadeOut(wp(140))
+            }, label = "overlay") { o ->
+                when (o) {
+                    Overlay.TABS -> TabsScreen(vm) { overlay = Overlay.NONE }
+                    Overlay.FAVORITES -> LinksScreen("favorites", vm.bookmarks.items.map { it.title to it.url },
+                        onOpen = { vm.go(it); overlay = Overlay.NONE }, onLong = { editBm = vm.bookmarks.items[it] })
+                    Overlay.RECENT -> LinksScreen("recent", vm.history.items.asReversed().map { it.title to it.url },
+                        onOpen = { vm.go(it); overlay = Overlay.NONE }, onClear = { vm.clearHistory() })
+                    Overlay.SETTINGS -> SettingsScreen(vm, onAddons = { overlay = Overlay.ADDONS }) { overlay = Overlay.NONE }
+                    Overlay.ADDONS -> AddonsScreen(vm) { overlay = Overlay.NONE }
+                    Overlay.NONE -> Box(Modifier.fillMaxSize())
+                }
+            }
         }
+        if (!barTop) bar()
+        if (standalone && !immersive && t.progress in 1..99) LinearProgressIndicator(
+            progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
+        )
     }
 
     PromptDialog(vm)
+    PermissionDialog(vm)
     ContextMenuDialog(vm)
     InstallAddonDialog()
     AppLinkDialog(vm)
@@ -220,10 +249,16 @@ fun BrowserScreen(vm: BrowserVM) {
 }
 
 @Composable
-private fun GeckoHost(session: GeckoSession) {
+private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
     AndroidView(
         // TextureView rendering: no black flashes or misplaced pages under Grove's menus and overlays.
-        factory = { GeckoView(it).apply { setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW) } },
+        factory = { c ->
+            GeckoView(c).apply {
+                setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+                val v = this
+                vm.capture = { runCatching { v.capturePixels() }.getOrNull() } // screenshots for tab previews and home tiles
+            }
+        },
         update = { v ->
             // Only show a session Gecko has opened (an unopened one would make GeckoView open a second engine).
             if (v.session !== session && session.isOpen) { if (v.session != null) v.releaseSession(); v.setSession(session) }
@@ -240,14 +275,25 @@ private fun AppBar(
     onMenu: (Boolean) -> Unit, onTabs: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val bar = barColor(t)
+    val bar by animateColorAsState(barColor(t), wp(300), label = "bar")
     val fg = if (bar.luminance() > 0.5f) Color.Black else Color.White
+    val progress by animateFloatAsState(t.progress / 100f, wp(260), label = "progress")
     Column(Modifier.fillMaxWidth().background(bar)) {
         if (t.progress in 1..99) LinearProgressIndicator(
-            progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
+            progress = { progress }, modifier = Modifier.fillMaxWidth().height(2.dp),
             color = cs.primary, trackColor = Color.Transparent, drawStopIndicator = {},
         ) else Spacer(Modifier.height(2.dp))
-        Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(54.dp)
+            // Swipe the bar left or right to go to the next or previous tab.
+            .pointerInput(vm.tabs.size, vm.cur) {
+                var drag = 0f
+                detectHorizontalDragGestures(onDragStart = { drag = 0f }, onDragEnd = {
+                    val i = vm.tabs.indexOf(vm.cur)
+                    val next = if (drag < -120f) vm.tabs.getOrNull(i + 1) else if (drag > 120f) vm.tabs.getOrNull(i - 1) else null
+                    if (next != null) { vm.snapshot(); vm.select(next) }
+                }) { _, d -> drag += d }
+            }
+            .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             AddressBox(t, editing, onEditing, onQuery, onGo, Modifier.weight(1f))
             if (!editing) {
                 Spacer(Modifier.width(10.dp))
@@ -258,7 +304,7 @@ private fun AppBar(
                     modifier = Modifier.clickable { onMenu(!menu) }.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp))
             }
         }
-        AnimatedVisibility(menu && !editing) {
+        AnimatedVisibility(menu && !editing, enter = expandVertically(wp(300)) + fadeIn(wp(200)), exit = shrinkVertically(wp(200)) + fadeOut(wp(120))) {
             Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 val loading = t.progress in 1..99
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {

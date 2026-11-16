@@ -44,6 +44,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var manifest by mutableStateOf<JSONObject?>(null)
     /** The website's theme colour (meta theme-color), used to tint Grove's bars. */
     var theme by mutableStateOf<Int?>(null)
+    /** Last screenshot of the page (tab previews). */
+    var thumb by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     val home get() = url.isBlank() || url == "about:blank"
 }
 
@@ -79,6 +81,13 @@ val ENGINES = listOf(
     "Bing" to "https://www.bing.com/search?q=%s",
 )
 
+/** DNS over HTTPS providers (name to address). */
+val DOH = listOf(
+    "cloudflare" to "https://mozilla.cloudflare-dns.com/dns-query",
+    "quad9 (blocks malware)" to "https://dns.quad9.net/dns-query",
+    "adguard (blocks ads and trackers)" to "https://dns.adguard-dns.com/dns-query",
+)
+
 private class IntPref(private val sp: SharedPreferences, private val key: String, def: Int) : ReadWriteProperty<Any?, Int> {
     private val s = mutableIntStateOf(sp.getInt(key, def))
     override fun getValue(thisRef: Any?, property: KProperty<*>) = s.intValue
@@ -96,6 +105,16 @@ class Prefs(ctx: Context) {
     var appLinks by IntPref(sp, "appLinks", 0)
     var bgPlay by IntPref(sp, "bgPlay", 1)
     var pip by IntPref(sp, "pip", 1)
+    /** Text size on websites, in percent. */
+    var textSize by IntPref(sp, "textSize", 100)
+    /** 1 = allow pinch zoom on every website. */
+    var forceZoom by IntPref(sp, "forceZoom", 0)
+    /** 0 = address bar at the bottom, 1 = at the top. */
+    var barTop by IntPref(sp, "barTop", 0)
+    /** DNS over HTTPS: 0 off, then DOH[i - 1]. */
+    var doh by IntPref(sp, "doh", 0)
+    /** 1 = "quit" in the menu deletes history and site data. */
+    var clearOnQuit by IntPref(sp, "clearOnQuit", 0)
     val engineUrl get() = ENGINES.getOrElse(engine) { ENGINES[0] }.second
 }
 

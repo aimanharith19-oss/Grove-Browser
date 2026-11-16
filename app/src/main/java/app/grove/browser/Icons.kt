@@ -11,6 +11,53 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
+/** Website screenshots for the home tiles, kept on the phone (one small JPEG per favorite). */
+object Thumbs {
+    val images = mutableStateMapOf<String, ImageBitmap>()
+    private val tried = HashSet<String>()
+    private val pool = Executors.newSingleThreadExecutor()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Same page = same site and path (ignores ?query and #part). */
+    fun key(url: String): String = runCatching {
+        val u = android.net.Uri.parse(url)
+        (u.host ?: "").removePrefix("www.") + (u.path ?: "").trimEnd('/')
+    }.getOrDefault(url)
+
+    private fun file(ctx: Context, key: String) = File(File(ctx.filesDir, "thumbs").apply { mkdirs() }, Integer.toHexString(key.hashCode()) + ".jpg")
+
+    fun get(ctx: Context, url: String): ImageBitmap? {
+        val k = key(url)
+        images[k]?.let { return it }
+        synchronized(this) { if (!tried.add(k)) return null }
+        val app = ctx.applicationContext
+        pool.execute {
+            val f = file(app, k)
+            val b = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
+            if (b != null) main.post { images[k] = b.asImageBitmap() }
+        }
+        return null
+    }
+
+    /** Shrinks a page capture to a tile-sized picture (top of the page, 4:3). */
+    fun shrink(src: Bitmap): Bitmap {
+        val w = 480
+        val h = minOf(360, src.height * w / src.width.coerceAtLeast(1))
+        val srcH = (h.toLong() * src.width / w).toInt().coerceIn(1, src.height)
+        val top = Bitmap.createBitmap(src, 0, 0, src.width, srcH)
+        return Bitmap.createScaledBitmap(top, w, h.coerceAtLeast(1), true)
+    }
+
+    fun put(ctx: Context, url: String, small: Bitmap) {
+        val k = key(url)
+        images[k] = small.asImageBitmap()
+        val app = ctx.applicationContext
+        pool.execute { runCatching { file(app, k).outputStream().use { small.compress(Bitmap.CompressFormat.JPEG, 82, it) } } }
+    }
+
+    fun remove(ctx: Context, url: String) { val k = key(url); images.remove(k); file(ctx, k).delete() }
+}
+
 /** Website icons for favorites, cached on the phone per site. */
 object Icons {
     val images = mutableStateMapOf<String, ImageBitmap>()

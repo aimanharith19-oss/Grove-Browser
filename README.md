@@ -5,6 +5,10 @@ A light, private Android browser with a Windows Phone-style interface, running o
 - **Windows Phone IE look**: address bar at the bottom, tab counter, `•••` menu with lowercase items, square accent tiles, 20 WP accent colours, dark or light theme
 - **Home screen = all your favorites** as speed-dial tiles (Vivaldi-style). Long-press a tile to edit it.
 - **uBlock Origin included**: the official Mozilla-signed release is installed on first launch and blocks ads, trackers, malware, scam and crypto-mining sites. Its popup is in the `•••` menu.
+- **Tint design**: every screen glows with your accent colour from the top; bars, menus and dialogs are tinted to match
+- **Smooth Windows Phone motion**: screens slide and fade in, tiles sink under your finger, the bar colour and loading line animate, pages scroll with spring physics and overscroll
+- **Home tiles with a screenshot and the site's icon**; the tabs screen shows a live preview of each tab
+- **Firefox features**: site permissions (location, camera, microphone, notifications: each site asks first), save page as PDF, print, text size and zoom on every site, DNS over HTTPS, reopen closed tabs, downloads, search in favorites and recent, address bar at the top or bottom, swipe the bar to switch tabs, set as default browser, delete everything on quit
 - **Groveguard built in**: the Groveguard web protection extension (ads, trackers, 18+ sites, dangerous sites, website history and log) is part of the app, always on, and links to the Groveguard app with its pairing code (`•••` → extensions → groveguard → open → history).
 - **Firefox add-ons**: install any add-on from addons.mozilla.org (`•••` → extensions → get firefox add-ons). Each one asks before getting permissions and is never allowed to send usage data.
 - **HTTPS options**: HTTPS-First (default), HTTPS-Only, or allow HTTP

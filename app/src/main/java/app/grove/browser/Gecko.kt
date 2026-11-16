@@ -75,6 +75,7 @@ object Gecko {
             .build()
         // No telemetry delegate and no crash handler are set: nothing is collected or sent.
         val runtime = GeckoRuntime.create(ctx, settings)
+        applyPrefs(sp.getInt("textSize", 100), sp.getInt("forceZoom", 0) == 1, sp.getInt("doh", 0), runtime)
         val ctl = runtime.webExtensionController
         ctl.setPromptDelegate(prompts)
         ctl.ensureBuiltIn(HELPER_URI, HELPER_ID).accept({ ext ->
@@ -89,6 +90,20 @@ object Gecko {
         installUblock(ctx, runtime)
         refresh(runtime)
         return runtime
+    }
+
+    /** Text size, zoom and DNS-over-HTTPS settings (applied at start and whenever you change them). */
+    fun applyPrefs(textSize: Int, forceZoom: Boolean, doh: Int, r: GeckoRuntime? = rt) {
+        val s = r?.settings ?: return
+        runCatching {
+            s.setAutomaticFontSizeAdjustment(false)
+            s.setFontInflationEnabled(textSize != 100)
+            s.setFontSizeFactor(textSize / 100f)
+            s.setForceUserScalableEnabled(forceZoom)
+            val provider = DOH.getOrNull(doh - 1)
+            if (provider == null) s.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_OFF)
+            else { s.setTrustedRecursiveResolverUri(provider.second); s.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST) }
+        }.onFailure { Log.w("Grove", "prefs failed", it) }
     }
 
     fun setHttps(mode: Int) {
@@ -230,5 +245,10 @@ prefs:
   media.autoplay.default: 1
   media.videocontrols.picture-in-picture.enabled: false
   browser.cache.memory.capacity: 65536
+  general.smoothScroll: true
+  general.smoothScroll.msdPhysics.enabled: true
+  apz.overscroll.enabled: true
+  apz.allow_zooming: true
+  layout.css.scroll-behavior.enabled: true
 """
 }

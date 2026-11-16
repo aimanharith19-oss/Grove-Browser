@@ -52,6 +52,26 @@ import app.grove.browser.Icons
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import app.grove.browser.Urls
+import app.grove.browser.Thumbs
+import app.grove.browser.DOH
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.layout.width
+
+/** Windows Phone "tilt": a tile sinks a little while your finger is on it. */
+@Composable
+fun Modifier.pressTile(source: MutableInteractionSource): Modifier {
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, wp(180), label = "tile")
+    return graphicsLayer { scaleX = scale; scaleY = scale }
+}
 
 @Composable
 fun Header(title: String) {
@@ -66,8 +86,8 @@ fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Un
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(100.dp),
-        modifier = Modifier.fillMaxSize().background(cs.background),
+        columns = GridCells.Adaptive(150.dp),
+        modifier = Modifier.fillMaxSize().tintBackground(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -80,26 +100,31 @@ fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Un
             }
         }
         items(vm.bookmarks.items, key = { it.id }) { b ->
-            Column(Modifier.combinedClickable(onClick = { onOpen(b.url) }, onLongClick = { onEdit(b) })) {
-                Box(Modifier.fillMaxWidth().aspectRatio(1f).background(cs.primary).padding(8.dp)) {
-                    val icon = Icons.get(ctx, b.url)
-                    if (icon != null) Box(Modifier.size(56.dp).background(Color.White).align(Alignment.Center), contentAlignment = Alignment.Center) {
-                        Image(icon, null, Modifier.size(40.dp))
-                    } else Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 40.sp,
-                        fontWeight = FontWeight.Light, modifier = Modifier.align(Alignment.Center))
-                    Text(Urls.host(b.url), color = Color.White, fontSize = 10.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart))
+            // Tile = screenshot of the website, with its icon and name on a strip at the bottom.
+            val src = remember { MutableInteractionSource() }
+            val icon = Icons.get(ctx, b.url)
+            val shot = Thumbs.get(ctx, b.url)
+            Box(Modifier.pressTile(src).fillMaxWidth().aspectRatio(1.2f).background(cs.primary)
+                .combinedClickable(interactionSource = src, indication = LocalIndication.current, onClick = { onOpen(b.url) }, onLongClick = { onEdit(b) })) {
+                if (shot != null) Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                else if (icon != null) Box(Modifier.padding(bottom = 30.dp).size(56.dp).background(Color.White).align(Alignment.Center), contentAlignment = Alignment.Center) {
+                    Image(icon, null, Modifier.size(40.dp))
+                } else Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 44.sp,
+                    fontWeight = FontWeight.Light, modifier = Modifier.align(Alignment.Center).padding(bottom = 30.dp))
+                Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(androidx.compose.ui.graphics.lerp(Color.Black, cs.primary, 0.35f).copy(alpha = 0.86f))
+                    .padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (icon != null) Box(Modifier.size(20.dp).background(Color.White), contentAlignment = Alignment.Center) { Image(icon, null, Modifier.size(16.dp)) }
+                    else Box(Modifier.size(20.dp).background(cs.primary), contentAlignment = Alignment.Center) {
+                        Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 12.sp)
+                    }
+                    Text(b.title.ifBlank { Urls.host(b.url) }, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 8.dp))
                 }
-                Text(b.title, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = cs.onBackground, modifier = Modifier.padding(top = 4.dp))
             }
         }
         item {
-            Column(Modifier.clickable(onClick = onAdd)) {
-                Box(Modifier.fillMaxWidth().aspectRatio(1f).border(2.dp, cs.onSurfaceVariant), contentAlignment = Alignment.Center) {
-                    Text("+", fontSize = 40.sp, color = cs.onSurfaceVariant)
-                }
-                Text("add", fontSize = 13.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            Box(Modifier.fillMaxWidth().aspectRatio(1.2f).border(2.dp, cs.onSurfaceVariant).clickable(onClick = onAdd), contentAlignment = Alignment.Center) {
+                Text("+", fontSize = 40.sp, color = cs.onSurfaceVariant)
             }
         }
         if (vm.bookmarks.items.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -112,7 +137,7 @@ fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Un
 @Composable
 fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().background(cs.background)) {
+    Column(Modifier.fillMaxSize().tintBackground()) {
         Header("tabs")
         LazyVerticalGrid(
             columns = GridCells.Fixed(2), modifier = Modifier.weight(1f),
@@ -121,25 +146,32 @@ fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
         ) {
             items(vm.tabs.toList()) { tab ->
                 val active = tab === vm.cur
-                Box(Modifier.fillMaxWidth().aspectRatio(0.85f)
+                val src = remember(tab) { MutableInteractionSource() }
+                val shot = tab.thumb
+                Box(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.85f)
                     .background(if (active) cs.primary else cs.surfaceVariant)
-                    .clickable { vm.select(tab); onClose() }.padding(10.dp)) {
-                    val fg = if (active) Color.White else cs.onSurface
-                    Column(Modifier.padding(end = 20.dp)) {
+                    .then(if (active) Modifier.border(3.dp, cs.primary) else Modifier)
+                    .clickable(interactionSource = src, indication = LocalIndication.current) { vm.select(tab); onClose() }) {
+                    val fg = if (active || shot != null) Color.White else cs.onSurface
+                    if (shot != null) Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .background(if (shot != null) androidx.compose.ui.graphics.lerp(Color.Black, cs.primary, if (active) 0.6f else 0.3f).copy(alpha = 0.88f) else Color.Transparent)
+                        .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
                         if (tab.private) Text("inprivate", fontSize = 11.sp, color = fg)
                         Text(tab.title.ifBlank { if (tab.home) "new tab" else Urls.host(tab.url) }, color = fg,
-                            fontSize = 17.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                            fontSize = if (shot != null) 14.sp else 17.sp, maxLines = if (shot != null) 1 else 4, overflow = TextOverflow.Ellipsis)
+                        Text(if (tab.home) "" else Urls.host(tab.url), color = fg, fontSize = 11.sp, maxLines = 1)
                     }
-                    Text(if (tab.home) "" else Urls.host(tab.url), color = fg, fontSize = 11.sp, maxLines = 1,
-                        modifier = Modifier.align(Alignment.BottomStart))
                     Text("✕", color = fg, fontSize = 18.sp,
-                        modifier = Modifier.align(Alignment.TopEnd).clickable { vm.closeTab(tab) }.padding(4.dp))
+                        modifier = Modifier.align(Alignment.TopEnd).background(if (shot != null) Color.Black.copy(alpha = 0.55f) else Color.Transparent)
+                            .clickable { vm.closeTab(tab) }.padding(horizontal = 10.dp, vertical = 6.dp))
                 }
             }
         }
         Row(Modifier.fillMaxWidth().background(cs.surfaceVariant).padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             Text("new tab", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.newTab(); onClose() }.padding(10.dp))
             Text("new inprivate", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.newTab(private = true); onClose() }.padding(10.dp))
+            if (vm.closed.isNotEmpty()) Text("reopen closed", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.reopenClosed(); onClose() }.padding(10.dp))
         }
     }
 }
@@ -152,11 +184,18 @@ fun LinksScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize().background(cs.background)) {
+    var q by remember { mutableStateOf("") }
+    val shown = if (q.isBlank()) links.withIndex().toList() else links.withIndex().filter { (_, l) -> l.first.contains(q, true) || l.second.contains(q, true) }
+    Column(Modifier.fillMaxSize().tintBackground()) {
         Header(title)
+        if (links.size > 6) BasicTextField(q, { q = it }, singleLine = true, textStyle = TextStyle(color = Color.Black, fontSize = 16.sp),
+            cursorBrush = SolidColor(cs.primary),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().height(38.dp).background(Color.White).padding(horizontal = 10.dp, vertical = 9.dp),
+            decorationBox = { inner -> Box { if (q.isEmpty()) Text("search $title", color = Color.Gray, fontSize = 16.sp); inner() } })
         if (links.isEmpty()) Text("nothing here yet", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp))
         LazyColumn(Modifier.weight(1f)) {
-            itemsIndexed(links) { i, (name, url) ->
+            listItems(shown) { (i, link) ->
+                val (name, url) = link
                 Row(Modifier.fillMaxWidth().combinedClickable(onClick = { onOpen(url) }, onLongClick = { onLong?.invoke(i) })
                     .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 val icon = Icons.get(ctx, url)
@@ -197,7 +236,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
     @Composable fun info(s: String) =
         Text(s, fontSize = 14.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-    Column(Modifier.fillMaxSize().background(cs.background).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxSize().tintBackground().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
         Header("settings")
         section("search engine")
         ENGINES.forEachIndexed { i, (name, _) -> option(name, p.engine == i) { p.engine = i } }
@@ -213,6 +252,20 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
                 }
             }
         }
+        section("address bar")
+        listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
+        info("swipe left or right on the address bar to switch tabs")
+        section("text size on websites")
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(80, 100, 120, 150, 200).forEach { v ->
+                Box(Modifier.weight(1f).height(44.dp).background(if (p.textSize == v) cs.primary else cs.surfaceVariant)
+                    .clickable { p.textSize = v; vm.applyPrefs() }, contentAlignment = Alignment.Center) {
+                    Text("$v%", color = if (p.textSize == v) Color.White else cs.onSurface, fontSize = 15.sp)
+                }
+            }
+        }
+        option("zoom on every website: " + if (p.forceZoom == 1) "on" else "off", false) { p.forceZoom = 1 - p.forceZoom; vm.applyPrefs() }
+        info("lets you pinch to zoom even on sites that try to stop it")
         section("secure connections (https)")
         listOf("https first (recommended)", "https only: warn before any http page", "allow http").forEachIndexed { i, s ->
             option(s, p.https == i) { p.https = i; Gecko.setHttps(i) }
@@ -233,7 +286,19 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         option("back up favorites", false) { backup.launch("grove-favorites.json") }
         option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
         info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
+        section("secure dns (dns over https)")
+        option("off: use your network's dns", p.doh == 0) { p.doh = 0; vm.applyPrefs() }
+        DOH.forEachIndexed { i, (name, _) -> option(name, p.doh == i + 1) { p.doh = i + 1; vm.applyPrefs() } }
+        info("hides which sites you look up from your network provider. falls back to normal dns if the provider can't be reached")
+        section("site permissions")
+        info("location, camera, microphone and notifications: each site asks first, and grove remembers your answer")
+        section("default browser")
+        option("make grove your default browser", false) {
+            runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
+        }
         section("privacy")
+        option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
+        info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
         info("tracking protection: strict · cookies isolated per site")
         info("ads, trackers, scam, phishing and crypto-mining sites blocked by ublock origin")
         info("no telemetry, no studies or remote experiments, no ai, no vpn, no sponsored content")
@@ -255,7 +320,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
 @Composable
 fun AddonsScreen(vm: BrowserVM, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().background(cs.background)) {
+    Column(Modifier.fillMaxSize().tintBackground()) {
         Header("extensions")
         if (Gecko.addons.isEmpty()) Text("no extensions yet", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp))
         LazyColumn(Modifier.weight(1f)) {
