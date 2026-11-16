@@ -24,6 +24,8 @@
             <category android:name="android.intent.category.BROWSABLE"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- the Groveguard app, to link the built-in Groveguard extension to it -->
+        <provider android:authorities="org.grove.guard.status"/>
     </queries>
     <application
         android:name=".GroveApp"

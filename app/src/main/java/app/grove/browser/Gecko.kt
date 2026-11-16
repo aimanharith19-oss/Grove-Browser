@@ -92,12 +92,34 @@ object Gecko {
         ctl.ensureBuiltIn(GUARD_URI, GUARD_ID).accept({ ext ->
             if (ext != null) {
                 Log.i("Grove", "Groveguard ready ${ext.metaData.version}")
+                linkGroveguard(ctx, ext)
                 ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) })
             }
         }, { Log.w("Grove", "Groveguard failed", it) })
         installUblock(ctx, runtime)
         refresh(runtime)
         return runtime
+    }
+
+    /**
+     * The built-in Groveguard extension asks for the Groveguard app's pairing code; Grove Browser fetches it from the app
+     * (which only gives it to the real Grove Browser) and hands it over, so linking needs no typing.
+     */
+    private fun linkGroveguard(ctx: Context, ext: WebExtension) {
+        ext.setMessageDelegate(object : WebExtension.MessageDelegate {
+            override fun onConnect(port: WebExtension.Port) {
+                Thread {
+                    val code = runCatching {
+                        ctx.contentResolver.call(android.net.Uri.parse("content://org.grove.guard.status"), "extLink", null, null)?.getString("code")
+                    }.getOrNull()
+                    if (code.isNullOrBlank()) return@Thread // Groveguard isn't installed (or is too old)
+                    main.post {
+                        runCatching { port.postMessage(org.json.JSONObject().put("code", code).put("name", "Grove Browser")) }
+                        Log.i("Grove", "Groveguard linked")
+                    }
+                }.start()
+            }
+        }, "groveguard")
     }
 
     /** Text size, zoom and DNS-over-HTTPS settings (applied at start and whenever you change them). */
