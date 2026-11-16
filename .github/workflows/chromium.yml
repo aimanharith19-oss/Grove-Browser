@@ -3,7 +3,7 @@ name: chromium
 # GPL-2.0, https://github.com/jqssun/android-titanium-browser) rebranded as Grove Browser, with Groveguard built in,
 # signed with the Grove key. Runs on every push to this branch, by hand, and daily (picks up new Chromium releases).
 on:
-  push: { branches: [chromium] }
+  push: { branches: [main] }
   workflow_dispatch:
   schedule: [{ cron: "17 3 * * *" }]
 permissions: { contents: write }
