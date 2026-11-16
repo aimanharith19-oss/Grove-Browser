@@ -30,6 +30,9 @@ object Gecko {
     const val UBO_ID = "uBlock0@raymondhill.net"
     private const val HELPER_ID = "helper@grove.browser"
     private const val HELPER_URI = "resource://android/assets/helper/"
+    /** Groveguard web protection (ads, trackers, 18+, dangerous sites), built into the APK: no Mozilla signature needed. */
+    const val GUARD_ID = "web-protection@groveguard.org"
+    private const val GUARD_URI = "resource://android/assets/groveguard/"
     private const val ENABLE_USER = 1 // WebExtension.EnableSource.USER
 
     @Volatile private var rt: GeckoRuntime? = null
@@ -77,6 +80,12 @@ object Gecko {
         ctl.ensureBuiltIn(HELPER_URI, HELPER_ID).accept({ ext ->
             if (ext != null) { helper = ext; helperListeners.toList().forEach { it(ext) } }
         }, { Log.w("Grove", "helper failed", it) })
+        ctl.ensureBuiltIn(GUARD_URI, GUARD_ID).accept({ ext ->
+            if (ext != null) {
+                Log.i("Grove", "Groveguard ready ${ext.metaData.version}")
+                ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) })
+            }
+        }, { Log.w("Grove", "Groveguard failed", it) })
         installUblock(ctx, runtime)
         refresh(runtime)
         return runtime
@@ -121,12 +130,14 @@ object Gecko {
 
     fun setEnabled(e: WebExtension, on: Boolean) {
         val r = rt ?: return
+        if (e.id == GUARD_ID && !on) return // built in, always on
         val ctl = r.webExtensionController
         (if (on) ctl.enable(e, ENABLE_USER) else ctl.disable(e, ENABLE_USER)).accept({ refresh(r) }, { refresh(r) })
     }
 
     fun remove(e: WebExtension) {
         val r = rt ?: return
+        if (e.id == GUARD_ID) return // built in
         if (e.id == UBO_ID) app.getSharedPreferences("grove", Context.MODE_PRIVATE).edit().putBoolean("ubo_removed", true).apply()
         actions.remove(e.id)
         r.webExtensionController.uninstall(e).accept({ refresh(r) }, { refresh(r) })

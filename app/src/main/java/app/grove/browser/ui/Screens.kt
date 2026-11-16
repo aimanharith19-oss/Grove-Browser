@@ -237,7 +237,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
         info("tracking protection: strict · cookies isolated per site")
         info("ads, trackers, scam, phishing and crypto-mining sites blocked by ublock origin")
         info("no telemetry, no studies or remote experiments, no ai, no vpn, no sponsored content")
-        option("extensions (ublock origin, firefox add-ons)", false) { onAddons() }
+        option("extensions (groveguard, ublock origin, firefox add-ons)", false) { onAddons() }
         option("delete history and site data", false) { confirmClear = true }
         section("about")
         info("grove browser $version · gecko engine")
@@ -263,16 +263,17 @@ fun AddonsScreen(vm: BrowserVM, onClose: () -> Unit) {
                 val m = e.metaData
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text((m.name ?: e.id).lowercase(), fontSize = 22.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
-                    Text("version ${m.version} · " + if (m.enabled) "on" else "off", fontSize = 12.sp, color = cs.primary)
+                    val builtIn = e.id == Gecko.GUARD_ID
+                    Text("version ${m.version} · " + if (builtIn) "built in · always on" else if (m.enabled) "on" else "off", fontSize = 12.sp, color = cs.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 4.dp)) {
                         // the add-on's popup (e.g. uBlock Origin's on/off switch for the current site)
                         if (m.enabled && Gecko.actions.containsKey(e.id)) Text("open", color = cs.primary,
                             modifier = Modifier.clickable { onClose(); Gecko.actions[e.id]?.click() }.padding(vertical = 6.dp))
-                        Text(if (m.enabled) "turn off" else "turn on", color = cs.onBackground,
+                        if (!builtIn) Text(if (m.enabled) "turn off" else "turn on", color = cs.onBackground,
                             modifier = Modifier.clickable { Gecko.setEnabled(e, !m.enabled) }.padding(vertical = 6.dp))
                         if (m.enabled && m.optionsPageUrl != null) Text("settings", color = cs.onBackground,
                             modifier = Modifier.clickable { vm.openOptions(e); onClose() }.padding(vertical = 6.dp))
-                        Text("remove", color = cs.onBackground, modifier = Modifier.clickable { Gecko.remove(e) }.padding(vertical = 6.dp))
+                        if (!builtIn) Text("remove", color = cs.onBackground, modifier = Modifier.clickable { Gecko.remove(e) }.padding(vertical = 6.dp))
                     }
                 }
             }
