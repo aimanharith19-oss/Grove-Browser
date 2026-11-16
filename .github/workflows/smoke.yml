@@ -37,6 +37,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
+            curl -fsSL -o /tmp/gg.apk "https://github.com/aimanharith19-oss/GroveGuard/raw/main/apk/$(curl -fsSL https://api.github.com/repos/aimanharith19-oss/GroveGuard/contents/apk | python3 -c 'import sys,json;print([f["name"] for f in json.load(sys.stdin) if f["name"].endswith(".apk")][0])')" && adb install -r /tmp/gg.apk || echo "groveguard not installed"
             adb install -r app/build/outputs/apk/release/app-x86_64-release.apk
             adb logcat -c
             adb shell am start -n app.grove.browser/.MainActivity
@@ -53,6 +54,8 @@ jobs:
             grep -qE "uBO (installed|ready)" logcat.txt
             grep -q "helper connected" logcat.txt
             grep -q "Groveguard ready" logcat.txt
+            grep -E "Groveguard linked" logcat.txt || echo "NOT LINKED"
+            adb shell run-as app.grove.browser true 2>/dev/null; true
       - name: Is the page drawn? (black-screen check)
         if: always()
         run: |
