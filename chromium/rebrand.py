@@ -201,20 +201,48 @@ def make_crx(ext_dir, key_pem):
 
 # ------------------------------------------------------------------------------------------------ icons
 def icon_files(apk):
-    """Paths of the launcher icon images, from `aapt2 dump resources`."""
+    """Image files of the launcher icon, found by following the app's icon resources (and the layers of its adaptive icons)."""
     bt = sorted(os.listdir(os.path.join(os.environ["ANDROID_HOME"], "build-tools")))[-1]
     aapt2 = os.path.join(os.environ["ANDROID_HOME"], "build-tools", bt, "aapt2")
     dump = subprocess.run([aapt2, "dump", "resources", apk], check=True, capture_output=True, text=True).stdout.splitlines()
-    want = {"mipmap/app_icon": "full", "mipmap/layered_app_icon_background": "bg", "mipmap/layered_app_icon_foreground": "fg",
-            "drawable/ic_launcher": "full", "drawable/ic_launcher_round": "round", "drawable/themed_app_icon": "fg"}
-    out, cur = {}, None
+    files, names, cur = {}, {}, None          # resource id -> [paths], resource id -> name
     for line in dump:
-        s = line.strip()
-        if s.startswith("resource 0x"):
-            cur = want.get(s.split()[2]) if len(s.split()) > 2 else None
-        elif cur and "(file)" in s:
-            path = s.split("(file)")[1].strip().split()[0]
-            out[path] = cur
+        t = line.strip().split()
+        if line.strip().startswith("resource 0x") and len(t) > 2:
+            cur = int(t[1], 16); names[cur] = t[2]; files.setdefault(cur, [])
+        elif cur is not None and "(file)" in line:
+            files[cur].append(line.split("(file)")[1].strip().split()[0])
+    by_name = {v: k for k, v in names.items()}
+    out = {}
+
+    def take(rid, kind):
+        for p in files.get(rid, []):
+            if p.endswith(".xml") and kind != "fg":
+                layers(p)
+            else:
+                out[p] = kind
+
+    def layers(path):
+        """adaptive-icon: background, foreground, monochrome."""
+        tree = subprocess.run([aapt2, "dump", "xmltree", "--file", path, apk], capture_output=True, text=True).stdout.splitlines()
+        if not any("adaptive-icon" in l for l in tree):
+            return
+        role, refs = None, {}
+        for l in tree:
+            l = l.strip()
+            for r in ("background", "foreground", "monochrome"):
+                if l.startswith("E: " + r): role = r
+            if role and "drawable(0x01010199)=@0x" in l:
+                refs[role] = int(l.split("=@")[1], 16); role = None
+        bg = refs.get("background")
+        if bg is not None and bg >> 24 == 0x7f: take(bg, "bg")
+        # a foreground drawn over a plain system colour carries the whole picture; over Titanium's own background it is just the logo
+        if "foreground" in refs: take(refs["foreground"], "fg" if bg is not None and bg >> 24 == 0x7f else "full108")
+        if "monochrome" in refs: take(refs["monochrome"], "fg")
+
+    for n, kind in [("mipmap/app_icon", "full"), ("drawable/ic_launcher", "full"), ("drawable/ic_launcher_round", "round"),
+                    ("mipmap/layered_app_icon", "full108"), ("mipmap/layered_app_icon_background", "bg"), ("mipmap/layered_app_icon_foreground", "fg")]:
+        if n in by_name: take(by_name[n], kind)
     return out
 
 
