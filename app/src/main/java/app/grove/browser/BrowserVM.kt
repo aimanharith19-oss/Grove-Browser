@@ -511,6 +511,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         if (m.optString("t") == "icon") Icons.hint(ctx, t.url, m.optString("h"))
                         if (m.optString("t") == "theme") t.theme = parseColor(m.optString("c"))
                         if (m.optString("t") == "reader") readerResult(t, m)
+                        if (m.optString("t") == "pip" && t === cur) enterPip?.invoke() // ⧉ on the mini player
                         if (m.optString("t") == "video") {
                             t.videoFrames[port] = m.optBoolean("playing")
                             t.videoPlaying = t.videoFrames.values.any { it }

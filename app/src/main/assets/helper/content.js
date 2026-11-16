@@ -151,8 +151,22 @@
       background: "rgba(0,0,0,.62)", font: "18px sans-serif", cursor: "pointer" };
     for (const k in sx) x.style.setProperty(k, sx[k], "important");
     m.over.appendChild(x);
-    let sxp = 0, syp = 0, ox = 0, oy = 0, moved = false, down = false;
-    m.over.addEventListener("pointerdown", e => { down = true; moved = false; sxp = e.clientX; syp = e.clientY; ox = m.x; oy = m.y; try { m.over.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
+    // "back to the player": puts the video back where it was on the page and scrolls to it (keeps playing)
+    const back = document.createElement("div");
+    back.textContent = "\u2922";
+    back.setAttribute("aria-label", "back to the player");
+    const sb = Object.assign({}, sx, { left: "0", right: "auto", "font-size": "20px" });
+    for (const k in sb) back.style.setProperty(k, sb[k], "important");
+    m.over.appendChild(back);
+    // "picture in picture": the system's floating window (stays on top of other apps)
+    const pop = document.createElement("div");
+    pop.textContent = "\u29c9";
+    pop.setAttribute("aria-label", "picture in picture");
+    const sp = Object.assign({}, sx, { left: "auto", right: "40px", "font-size": "18px" });
+    for (const k in sp) pop.style.setProperty(k, sp[k], "important");
+    m.over.appendChild(pop);
+    let sxp = 0, syp = 0, ox = 0, oy = 0, moved = false, down = false, hit = null;
+    m.over.addEventListener("pointerdown", e => { down = true; moved = false; hit = e.target; /* the button pressed: pointer capture retargets the later events */ sxp = e.clientX; syp = e.clientY; ox = m.x; oy = m.y; try { m.over.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
     m.over.addEventListener("pointermove", e => {
       if (!down) return;
       const dx = e.clientX - sxp, dy = e.clientY - syp;
@@ -163,7 +177,12 @@
     m.over.addEventListener("pointerup", e => {
       if (!down) return;
       down = false;
-      if (!moved) { if (e.target === x) closeMini(); else if (v.paused) v.play().catch(() => {}); else v.pause(); }
+      if (!moved) {
+        if (hit === x) { v.pause(); closeMini(); }                       // \u2715 stops it
+        else if (hit === back) { closeMini(); try { v.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (er) {} if (v.paused) v.play().catch(() => {}); }
+        else if (hit === pop) { closeMini(); send({ t: "pip" }); }
+        else if (v.paused) v.play().catch(() => {}); else v.pause();
+      }
       e.preventDefault();
     });
     m.over.addEventListener("pointercancel", () => { down = false; });
