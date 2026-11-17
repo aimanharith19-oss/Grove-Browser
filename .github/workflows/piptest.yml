@@ -65,6 +65,8 @@ jobs:
             sleep 35
             adb shell am start -a android.intent.action.VIEW -d http://10.0.2.2:8000/index.html app.grove.browser
             sleep 20
+            adb shell input tap 160 190
+            sleep 6
             adb shell screencap -p /sdcard/a.png && adb pull /sdcard/a.png before.png
             adb logcat -c
             adb shell input keyevent KEYCODE_HOME
