@@ -1,6 +1,12 @@
 package app.grove.browser
 
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.graphics.drawable.Icon
 import android.app.SearchManager
 import android.content.Intent
 import android.content.res.Configuration
@@ -63,6 +69,7 @@ open class MainActivity : ComponentActivity() {
             runCatching { askPerms.launch(perms) }.onFailure { permDone = null; done(false) }
         }
         vm.enterPip = { if (!isInPictureInPictureMode) runCatching { enterPictureInPictureMode(pipParams()) } }
+        androidx.core.content.ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(PIP_INTENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         ready = true
         if (savedInstanceState == null && webApp == null) handleIntent(intent)
         setContent {
@@ -70,7 +77,7 @@ open class MainActivity : ComponentActivity() {
                 BrowserScreen(vm)
                 // Android 12+: swiping home while a video plays goes straight to picture-in-picture.
                 val t = vm.cur
-                LaunchedEffect(t?.videoPlaying, vm.prefs.pip) { updatePip() }
+                LaunchedEffect(t?.videoPlaying, t?.playing, vm.prefs.pip) { updatePip() }
             }
         }
     }
@@ -111,7 +118,28 @@ open class MainActivity : ComponentActivity() {
         val ratio = when { r > 2.39f -> Rational(239, 100); r < 0.42f -> Rational(42, 100); else -> Rational((r * 1000).toInt(), 1000) }
         val b = PictureInPictureParams.Builder().setAspectRatio(ratio)
         if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(pipWanted()).setSeamlessResizeEnabled(false)
+        // same buttons as Grove's own mini player: audio only, play/pause (Android adds expand and close)
+        val playing = t?.playing == true || t?.videoPlaying == true
+        b.setActions(listOf(
+            pipAction(R.drawable.ic_pip_audio, "Audio only", PIP_AUDIO, 1),
+            if (playing) pipAction(R.drawable.ic_pip_pause, "Pause", PIP_PLAY, 2) else pipAction(R.drawable.ic_pip_play, "Play", PIP_PLAY, 2),
+        ))
         return b.build()
+    }
+
+    private fun pipAction(icon: Int, title: String, what: String, code: Int) = RemoteAction(
+        Icon.createWithResource(this, icon), title, title,
+        PendingIntent.getBroadcast(this, code, Intent(PIP_INTENT).setPackage(packageName).putExtra("a", what), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            if (!ready) return
+            when (i.getStringExtra("a")) {
+                PIP_PLAY -> vm.togglePlay()
+                // close the video window, keep the sound: Grove goes to the background with the media notification
+                PIP_AUDIO -> { vm.startAudioOnly(); moveTaskToBack(true) }
+            }
+        }
     }
 
     private fun updatePip() { if (ready) runCatching { setPictureInPictureParams(pipParams()) } }
@@ -149,9 +177,14 @@ open class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(pipReceiver) }
         pendingFile?.let { (p, r) -> r.complete(p.dismiss()) }
         pendingFile = null
         if (ready) { vm.filePicker = null; vm.external = null; vm.enterPip = null; vm.androidPerms = null; vm.capture = null }
         super.onDestroy()
     }
 }
+
+private const val PIP_INTENT = "app.grove.browser.PIP"
+private const val PIP_PLAY = "play"
+private const val PIP_AUDIO = "audio"

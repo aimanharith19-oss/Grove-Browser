@@ -122,12 +122,25 @@
   for (const ev of ["play", "playing", "loadedmetadata", "emptied"]) document.addEventListener(ev, queuePlace, true);
   setInterval(() => { if (document.querySelector("video")) placeBtn(); else if (btn) btn.style.display = "none"; }, 1500);
 
+  // Looks and moves like Android's own picture-in-picture window: rounded, tap for dimmed controls, snaps to the side.
+  const NS = "http://www.w3.org/2000/svg";
+  const ICON = { play: "M8 5v14l11-7z", pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z", audio: "M12 1a9 9 0 0 0-9 9v7a3 3 0 0 0 3 3h3v-8H5v-2a7 7 0 0 1 14 0v2h-4v8h3a3 3 0 0 0 3-3v-7a9 9 0 0 0-9-9z",
+    expand: "M5 5h6v2H7v4H5V5zm8 0h6v6h-2V7h-4V5zM5 13h2v4h4v2H5v-6zm12 0h2v6h-6v-2h4v-4z", close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+    pop: "M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H3V5h18v14z" };
+  const css = (el, st) => { for (const k in st) el.style.setProperty(k, st[k], "important"); return el; };
+  function icon(name, size) {
+    const b = css(document.createElement("div"), { width: size + "px", height: size + "px", display: "flex", "align-items": "center", "justify-content": "center", cursor: "pointer", "border-radius": "50%" });
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", Math.round(size * .62)); svg.setAttribute("height", Math.round(size * .62));
+    const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "#fff"); path.setAttribute("d", ICON[name]); svg.appendChild(path);
+    css(svg, { "pointer-events": "none" }); b.appendChild(svg); b.setIcon = n => path.setAttribute("d", ICON[n]); return b;
+  }
+  const EASE = "cubic-bezier(.2,.9,.25,1)";
   function openMini(v) {
     if (mini || saved) return;
-    const w = Math.round(Math.min(innerWidth * 0.62, 340)), ratio = v.videoWidth && v.videoHeight ? v.videoHeight / v.videoWidth : 9 / 16;
-    const h = Math.round(w * Math.min(Math.max(ratio, 0.4), 1.8));
-    const m = { v, css: v.style.cssText, x: innerWidth - w - 10, y: innerHeight - h - 90, w, h, undo: [] };
-    // an ancestor with a transform/filter would trap "position: fixed": switch those off while floating
+    const w0 = Math.round(Math.min(innerWidth * 0.62, 340)), ratio = v.videoWidth && v.videoHeight ? v.videoHeight / v.videoWidth : 9 / 16;
+    const rr = Math.min(Math.max(ratio, 0.4), 1.8), h0 = Math.round(w0 * rr);
+    const r0 = v.getBoundingClientRect();
+    const m = { v, css: v.style.cssText, x: innerWidth - w0 - 12, y: innerHeight - h0 - 96, w: w0, h: h0, big: false, undo: [] };
     for (let p = v.parentElement; p && p !== document.documentElement; p = p.parentElement) {
       const cs = getComputedStyle(p);
       if (cs.transform !== "none" || cs.filter !== "none" || cs.perspective !== "none" || /paint|layout|strict|content/.test(cs.contain) || cs.willChange.includes("transform")) {
@@ -135,72 +148,86 @@
         for (const k of ["transform", "filter", "perspective", "contain", "will-change"]) p.style.setProperty(k, k === "will-change" ? "auto" : "none", "important");
       }
     }
-    const apply = () => {
-      const st = { position: "fixed", left: m.x + "px", top: m.y + "px", right: "auto", bottom: "auto", width: m.w + "px", height: m.h + "px", "max-width": "none",
-        "max-height": "none", "min-width": "0", "min-height": "0", "z-index": "2147483645", background: "#000", "object-fit": "contain", transform: "none", margin: "0",
-        "box-shadow": "0 0 0 2px #fff, 0 6px 24px rgba(0,0,0,.6)" };
-      for (const k in st) v.style.setProperty(k, st[k], "important");
-      const so = { position: "fixed", left: m.x + "px", top: m.y + "px", width: m.w + "px", height: m.h + "px", "z-index": "2147483647", "touch-action": "none", background: "transparent" };
-      for (const k in so) m.over.style.setProperty(k, so[k], "important");
+    const box = (x, y, w, h, t) => ({ position: "fixed", left: x + "px", top: y + "px", width: w + "px", height: h + "px", right: "auto", bottom: "auto", margin: "0", opacity: "1", transform: "none",
+      transition: t ? `left ${t}ms ${EASE}, top ${t}ms ${EASE}, width ${t}ms ${EASE}, height ${t}ms ${EASE}, opacity ${t}ms, transform ${t}ms ${EASE}` : "none" });
+    const apply = t => {
+      css(v, Object.assign(box(m.x, m.y, m.w, m.h, t), { "max-width": "none", "max-height": "none", "min-width": "0", "min-height": "0", "z-index": "2147483645", background: "#000",
+        "object-fit": "contain", "border-radius": "14px", "box-shadow": "0 8px 28px rgba(0,0,0,.5)" }));
+      css(m.over, Object.assign(box(m.x, m.y, m.w, m.h, t), { "z-index": "2147483647", "touch-action": "none", background: "transparent", "border-radius": "14px", overflow: "hidden" }));
     };
-    // a clear layer on top: drag it to move the player, tap to play/pause, ✕ puts the video back
     m.over = document.createElement("div");
-    const x = document.createElement("div");
-    x.textContent = "✕";
-    const sx = { position: "absolute", top: "0", right: "0", width: "36px", height: "36px", "line-height": "36px", "text-align": "center", color: "#fff",
-      background: "rgba(0,0,0,.62)", font: "18px sans-serif", cursor: "pointer" };
-    for (const k in sx) x.style.setProperty(k, sx[k], "important");
-    m.over.appendChild(x);
-    // "back to the player": puts the video back where it was on the page and scrolls to it (keeps playing)
-    const back = document.createElement("div");
-    back.textContent = "\u2922";
-    back.setAttribute("aria-label", "back to the player");
-    const sb = Object.assign({}, sx, { left: "0", right: "auto", "font-size": "20px" });
-    for (const k in sb) back.style.setProperty(k, sb[k], "important");
-    m.over.appendChild(back);
-    // "picture in picture": the system's floating window (stays on top of other apps)
-    const pop = document.createElement("div");
-    pop.textContent = "\u29c9";
-    pop.setAttribute("aria-label", "picture in picture");
-    const sp = Object.assign({}, sx, { left: "auto", right: "40px", "font-size": "18px" });
-    for (const k in sp) pop.style.setProperty(k, sp[k], "important");
-    m.over.appendChild(pop);
-    let sxp = 0, syp = 0, ox = 0, oy = 0, moved = false, down = false, hit = null;
-    m.over.addEventListener("pointerdown", e => { down = true; moved = false; hit = e.target; /* the button pressed: pointer capture retargets the later events */ sxp = e.clientX; syp = e.clientY; ox = m.x; oy = m.y; try { m.over.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
+    m.ctl = css(document.createElement("div"), { position: "absolute", inset: "0", background: "rgba(0,0,0,.45)", opacity: "0", transition: "opacity 180ms", "pointer-events": "none" });
+    m.over.appendChild(m.ctl);
+    const row = css(document.createElement("div"), { position: "absolute", left: "0", right: "0", top: "50%", transform: "translateY(-50%)", display: "flex", "justify-content": "center", gap: "10px" });
+    const aud = icon("audio", 40), exp = icon("expand", 44), pp = icon(v.paused ? "play" : "pause", 40);
+    aud.setAttribute("aria-label", "audio only"); exp.setAttribute("aria-label", "back to the player"); pp.setAttribute("aria-label", "play or pause");
+    row.append(aud, exp, pp); m.ctl.appendChild(row);
+    const x = css(icon("close", 36), { position: "absolute", top: "2px", right: "2px" }); x.setAttribute("aria-label", "close");
+    const pop = css(icon("pop", 36), { position: "absolute", top: "2px", left: "2px" }); pop.setAttribute("aria-label", "float over other apps");
+    m.ctl.append(x, pop);
+    const sync = () => pp.setIcon(v.paused ? "play" : "pause");
+    v.addEventListener("play", sync); v.addEventListener("pause", sync); m.sync = sync;
+    let shown = false, hideT = 0;
+    const show = on => { shown = on; m.ctl.style.setProperty("opacity", on ? "1" : "0", "important"); clearTimeout(hideT); if (on) hideT = setTimeout(() => show(false), 3000); };
+    m.show = show;
+    let sxp = 0, syp = 0, ox = 0, oy = 0, moved = false, down = false, hit = null, lastTap = 0;
+    m.over.addEventListener("pointerdown", e => { down = true; moved = false; hit = shown ? [aud, exp, pp, x, pop].find(b => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }) || null : null; sxp = e.clientX; syp = e.clientY; ox = m.x; oy = m.y; try { m.over.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
     m.over.addEventListener("pointermove", e => {
       if (!down) return;
       const dx = e.clientX - sxp, dy = e.clientY - syp;
-      if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
-      if (moved) { m.x = Math.max(0, Math.min(innerWidth - m.w, ox + dx)); m.y = Math.max(0, Math.min(innerHeight - m.h, oy + dy)); apply(); }
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 8) { moved = true; show(false); }
+      if (moved) { m.x = ox + dx; m.y = Math.max(0, Math.min(innerHeight - m.h, oy + dy)); apply(0); }
       e.preventDefault();
     });
     m.over.addEventListener("pointerup", e => {
       if (!down) return;
-      down = false;
-      if (!moved) {
-        if (hit === x) { v.pause(); closeMini(); }                       // \u2715 stops it
-        else if (hit === back) { closeMini(); try { v.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (er) {} if (v.paused) v.play().catch(() => {}); }
-        else if (hit === pop) { closeMini(); send({ t: "pip" }); }
-        else if (v.paused) v.play().catch(() => {}); else v.pause();
+      down = false; e.preventDefault();
+      if (moved) {                                    // fling off the side closes it, otherwise it snaps to the nearest side
+        if (m.x + m.w < 60 || m.x > innerWidth - 60) { v.pause(); closeMini("fade"); return; }
+        snap(); apply(260); return;
       }
-      e.preventDefault();
+      const now = Date.now();
+      if (!hit && now - lastTap < 300) {              // double tap: bigger / smaller, like Android
+        m.big = !m.big; const k = m.big ? 1.45 : 1 / 1.45;
+        m.w = Math.round(Math.min(m.w * k, innerWidth - 24)); m.h = Math.round(m.w * rr); snap(); apply(260); lastTap = 0; show(false); return;
+      }
+      lastTap = now;
+      if (!shown || !hit) { show(!shown); return; }
+      show(true);
+      if (hit === x) { v.pause(); closeMini("fade"); }
+      else if (hit === aud) closeMini("fade");                                   // audio only: the window goes, the sound keeps playing
+      else if (hit === exp) { closeMini("back"); }
+      else if (hit === pop) { closeMini(); send({ t: "pip" }); }
+      else if (hit === pp) { if (v.paused) v.play().catch(() => {}); else v.pause(); }
     });
-    m.over.addEventListener("pointercancel", () => { down = false; });
+    m.over.addEventListener("pointercancel", () => { down = false; if (moved) { snap(); apply(260); } });
+    const snap = () => { m.x = m.x + m.w / 2 < innerWidth / 2 ? 12 : innerWidth - m.w - 12; m.y = Math.max(12, Math.min(innerHeight - m.h - 12, m.y)); };
+    m.onResize = () => { snap(); apply(0); }; addEventListener("resize", m.onResize);
     (document.body || document.documentElement).appendChild(m.over);
     mini = m;
-    apply();
+    // grow out of the video's spot on the page into the corner
+    const tx = m.x, ty = m.y; m.x = r0.left; m.y = r0.top; m.w = Math.max(60, r0.width); m.h = Math.max(40, r0.height);
+    apply(0); void m.over.offsetWidth;
+    m.x = tx; m.y = ty; m.w = w0; m.h = h0; requestAnimationFrame(() => apply(300));
     placeBtn();
     m.gone = setInterval(() => { if (!v.isConnected) closeMini(); }, 1000);
   }
-  function closeMini() {
+  function closeMini(how) {
     const m = mini;
     if (!m) return;
     mini = null;
-    clearInterval(m.gone);
-    m.v.style.cssText = m.css;
-    for (const [p, css] of m.undo) p.style.cssText = css;
-    m.over.remove();
-    queuePlace();
+    clearInterval(m.gone); removeEventListener("resize", m.onResize);
+    m.v.removeEventListener("play", m.sync); m.v.removeEventListener("pause", m.sync);
+    const done = () => {
+      m.v.style.cssText = m.css;
+      for (const [p, c] of m.undo) p.style.cssText = c;
+      m.over.remove();
+      if (how === "back") { try { m.v.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (er) {} if (m.v.paused) m.v.play().catch(() => {}); }
+      queuePlace();
+    };
+    if (!how) return done();
+    for (const el of [m.v, m.over]) css(el, { transition: `opacity 200ms, transform 200ms ${EASE}`, opacity: "0", transform: how === "back" ? "scale(1.08)" : "scale(.85)" });
+    setTimeout(done, 210);
   }
 
   // ---------- YouTube: no "Video paused. Continue watching?" interruptions

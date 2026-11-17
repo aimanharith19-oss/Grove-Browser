@@ -13,8 +13,8 @@ android {
         applicationId = "app.grove.browser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 900000015
-        versionName = "1.3.9"
+        versionCode = 900000016
+        versionName = "1.3.10"
     }
     // One APK per CPU type: each is a fraction of a universal APK.
     splits {

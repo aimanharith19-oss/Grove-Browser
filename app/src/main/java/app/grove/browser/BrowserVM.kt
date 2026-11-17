@@ -344,11 +344,25 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         else { t.session.setActive(false); t.pending = !t.home }
     }
 
+    /** "Audio only" from the picture-in-picture window: the video window closes, the sound keeps playing. */
+    var audioOnly = false; private set
+    private val bgOn get() = prefs.bgPlay == 1 || audioOnly
+
     fun foreground(on: Boolean) {
+        if (on && audioOnly) { audioOnly = false; if (prefs.bgPlay == 0) cur?.ports?.forEach { runCatching { it.postMessage(JSONObject().put("bg", false)) } } }
         val c = cur ?: return
         // With background play on, the playing tab keeps running while Grove is in the background.
-        if (on || !(prefs.bgPlay == 1 && c.playing)) c.session.setActive(on)
+        if (on || !(bgOn && c.playing)) c.session.setActive(on)
     }
+
+    fun startAudioOnly() {
+        val c = cur ?: return
+        audioOnly = true
+        c.ports.forEach { runCatching { it.postMessage(JSONObject().put("bg", true)) } }
+        mediaChanged(c)
+    }
+
+    fun togglePlay() { val t = cur ?: return; t.media?.let { if (t.playing) it.pause() else it.play() } }
 
     fun setBgPlay(on: Boolean) {
         prefs.bgPlay = if (on) 1 else 0
@@ -489,7 +503,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     // ---------- media ----------
 
     private fun mediaChanged(t: Tab) {
-        if (prefs.bgPlay == 0 || t.media == null) return
+        if (!bgOn || t.media == null) return
         if (t.playing || MediaHub.session === t.media) MediaHub.update(t.media, t.mediaTitle.ifBlank { t.title.ifBlank { Urls.host(t.url) } }, t.playing)
         if (t.playing) {
             if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
