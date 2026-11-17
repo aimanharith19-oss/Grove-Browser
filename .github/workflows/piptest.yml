@@ -1,5 +1,9 @@
 name: piptest
-on: { workflow_dispatch: {} }
+on:
+  workflow_dispatch:
+    inputs:
+      url: { default: 'http://10.0.2.2:8000/index.html' }
+      tap: { default: '160 190' }
 permissions: { contents: write }
 jobs:
   smoke:
@@ -63,9 +67,10 @@ jobs:
             adb install -r app/build/outputs/apk/release/app-x86_64-release.apk
             adb shell am start -n app.grove.browser/.MainActivity
             sleep 35
-            adb shell am start -a android.intent.action.VIEW -d http://10.0.2.2:8000/index.html app.grove.browser
-            sleep 20
-            adb shell input tap 160 190
+            adb shell am start -a android.intent.action.VIEW -d '${{ inputs.url }}' app.grove.browser
+            sleep 30
+            adb shell screencap -p /sdcard/z.png && adb pull /sdcard/z.png loaded.png
+            adb shell input tap ${{ inputs.tap }}
             sleep 6
             adb shell screencap -p /sdcard/a.png && adb pull /sdcard/a.png before.png
             adb logcat -c
