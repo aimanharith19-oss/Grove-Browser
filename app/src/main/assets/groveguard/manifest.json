@@ -16,7 +16,8 @@
     "alarms",
     "scripting",
     "<all_urls>",
-    "nativeMessaging"
+    "nativeMessaging",
+    "geckoViewAddons"
   ],
   "background": {
     "scripts": [
