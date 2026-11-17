@@ -151,7 +151,11 @@ open class MainActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (ready) vm.pipMode(isInPictureInPictureMode)
+        if (ready) {
+            vm.pipMode(isInPictureInPictureMode)
+            // the window was closed (swiped away / ✕) while Grove is in the background: behave as if Grove had just been left
+            if (!isInPictureInPictureMode && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) vm.foreground(false)
+        }
     }
 
     /** Only http(s) links are accepted from other apps (blocks file:, javascript:, content: tricks). */
@@ -173,7 +177,9 @@ open class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (ready) { vm.foreground(false); vm.save() }
+        // Some phones (ZTE/Nubia and others) stop the activity while it's in picture-in-picture: the page must stay
+        // active there, or the video pauses and the window shows a frozen, uncropped page.
+        if (ready) { if (!isInPictureInPictureMode) vm.foreground(false); vm.save() }
     }
 
     override fun onDestroy() {

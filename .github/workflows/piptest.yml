@@ -56,6 +56,7 @@ jobs:
           <p style="font-size:30px">page text page text page text</p>
           <script>const v=document.getElementById('v');addEventListener('resize',()=>{const r=player.getBoundingClientRect();v.style.width=r.width+'px';v.style.height=r.height+'px';v.style.left='0px';v.style.top='0px'});setInterval(()=>v.play().catch(()=>{}),1000)</script>
           H
+          echo '<meta name=viewport content="width=device-width"><h1 style="font-size:40px">another website</h1>' > other.html
           nohup python3 -m http.server 8000 >/dev/null 2>&1 &
       - uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -80,6 +81,14 @@ jobs:
             sleep 8
             adb shell screencap -p /sdcard/c.png && adb pull /sdcard/c.png pip2.png
             adb shell dumpsys activity activities | grep -iE "pinned|windowingMode|mBounds" | head -20 || true
+            adb shell am start -n app.grove.browser/.MainActivity
+            sleep 6
+            adb shell input tap 295 109
+            sleep 4
+            adb shell screencap -p /sdcard/d.png && adb pull /sdcard/d.png mini.png
+            adb shell am start -a android.intent.action.VIEW -d http://10.0.2.2:8000/other.html app.grove.browser
+            sleep 10
+            adb shell screencap -p /sdcard/e.png && adb pull /sdcard/e.png float.png
             adb logcat -d > pip-logcat.txt || true
             grep -iE "Grove|GeckoConsole|pip" pip-logcat.txt | head -60 || true
       - name: Publish screenshots to the piptest branch
