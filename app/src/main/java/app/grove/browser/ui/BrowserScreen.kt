@@ -263,8 +263,6 @@ fun BrowserScreen(vm: BrowserVM) {
             color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
         )
     }
-    // a video playing in Grove's floating window while you use other tabs
-    if (!standalone) FloatingPlayer(vm)
     // open tabs slide up over the page, like Firefox for Android
     if (!standalone) TabsSheet(vm, overlay == Overlay.TABS && !immersive) { overlay = Overlay.NONE }
     }

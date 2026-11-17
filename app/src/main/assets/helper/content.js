@@ -1,13 +1,12 @@
-// Grove helper: tells Grove when a video plays (for picture-in-picture), fills the window with the
-// video while in picture-in-picture, and keeps media playing when Grove is in the background.
+// Grove helper: tells Grove when a video plays (for picture-in-picture) and keeps media playing when Grove is in the background.
+// Picture-in-picture itself is Firefox's way: the video goes full screen and that full-screen player becomes the floating window.
 (() => {
-  let bg = false, port = null, last = null, saved = null;
+  let bg = false, port = null;
   try { port = browser.runtime.connectNative("grove"); } catch (e) { return; }
   const send = m => { try { port.postMessage(m); } catch (e) {} };
 
   port.onMessage.addListener(m => {
     if ("bg" in m) bg = !!m.bg;
-    if ("pip" in m) pip(!!m.pip);
     if (m.reader && window === window.top) makeReader(m.reader);
     if ("mini" in m) miniOn = !!m.mini;
   });
@@ -26,7 +25,6 @@
   const playingVideo = () => [...document.querySelectorAll("video")].find(v => !v.paused && !v.ended && v.readyState > 1);
   const report = () => {
     const v = playingVideo();
-    if (v) last = v;
     send({ t: "video", playing: !!v, w: v ? v.videoWidth : 0, h: v ? v.videoHeight : 0 });
   };
   for (const ev of ["play", "playing", "pause", "ended", "emptied", "loadedmetadata"]) document.addEventListener(ev, report, true);
@@ -65,70 +63,11 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch, { once: true }); else watch();
   }
 
-  // A parent box with a transform, filter, contain, etc. traps "position: fixed" (YouTube's player does this) and can clip
-  // the video: switch those off on the video's ancestors while it floats, and give back a list to undo it.
-  function unTrap(v) {
-    const undo = [];
-    for (let p = v.parentElement; p && p !== document.documentElement; p = p.parentElement) {
-      const cs = getComputedStyle(p), on = x => x && x !== "none";
-      if (on(cs.transform) || on(cs.translate) || on(cs.scale) || on(cs.rotate) || on(cs.filter) || on(cs.backdropFilter) || on(cs.perspective)
-        || /paint|layout|strict|content/.test(cs.contain) || cs.contentVisibility === "auto" || /transform|filter|perspective|translate|scale|rotate/.test(cs.willChange)) {
-        undo.push([p, p.style.cssText]);
-        for (const k of ["transform", "translate", "scale", "rotate", "filter", "backdrop-filter", "perspective", "contain", "content-visibility", "will-change"])
-          p.style.setProperty(k, k === "will-change" ? "auto" : k === "content-visibility" ? "visible" : "none", "important");
-      }
-    }
-    return undo;
-  }
-
-  // Picture-in-picture: make the playing video fill the (small) window. Uses inline styles so page CSP can't block it.
-  // Sites' players rewrite the video's inline size and position on every resize (entering picture-in-picture is one),
-  // so the video is watched and the fill put back whenever that happens.
-  const FILL = { position: "fixed", left: "0px", top: "0px", right: "0px", bottom: "0px", width: "100vw", height: "100vh", "max-width": "none", "max-height": "none",
-    "min-width": "0px", "min-height": "0px", "z-index": "2147483647", background: "#000", "object-fit": "contain", transform: "none", translate: "none", margin: "0px",
-    "border-radius": "0px", "box-shadow": "none", opacity: "1", transition: "none", visibility: "visible" };
-  function pip(on) {
-    if (saved) {
-      saved.mo.disconnect();
-      saved.v.style.cssText = saved.css;
-      if (saved.ph) {
-        const v0 = saved.v, was = !v0.paused;
-        if (saved.ph.isConnected) saved.ph.parentNode.insertBefore(v0, saved.ph); else v0.remove();
-        saved.ph.remove();
-        if (was && v0.isConnected) setTimeout(() => { if (v0.paused) v0.play().catch(() => {}); }, 0);
-      }
-      for (const [p, c] of saved.undo) p.style.cssText = c;
-      document.documentElement.style.overflow = saved.html;
-      saved = null;
-      queuePlace();
-    }
-    if (!on) return;
-    if (mini) closeMini();
-    if (btn) btn.style.setProperty("display", "none", "important");
-    const v = playingVideo() || last;
-    if (!v) return;
-    const st = v.style;
-    const fill = () => { for (const k in FILL) st.setProperty(k, FILL[k], "important"); };
-    saved = { v, css: st.cssText, html: document.documentElement.style.overflow, undo: unTrap(v) };
-    // Sites hide, clip or shrink their player when the window gets small (YouTube does). So the video itself is lifted out
-    // of the page for as long as the window is open (moved within the same moment, so it keeps playing) and put back after.
-    saved.ph = document.createComment("grove-pip");
-    const was = !v.paused;
-    try { v.parentNode.insertBefore(saved.ph, v); document.documentElement.appendChild(v); } catch (er) { saved.ph = null; }
-    if (was) setTimeout(() => { if (v.paused) v.play().catch(() => {}); }, 0);
-    fill();
-    saved.mo = new MutationObserver(() => {
-      if (["width", "height", "left", "top", "transform"].some(k => st.getPropertyValue(k) !== FILL[k] || st.getPropertyPriority(k) !== "important")) fill();
-    });
-    saved.mo.observe(v, { attributes: true, attributeFilter: ["style"] });
-    document.documentElement.style.setProperty("overflow", "hidden", "important");
-  }
-
-  // ---------- mini player: a small button on every video; tap it and the video floats in a corner, draggable, while you keep browsing the page
-  let miniOn = true, btn = null, btnFor = null, mini = null;
+  // ---------- picture-in-picture button on every video: the video goes full screen, then Grove opens Android's floating window
+  let miniOn = true, btn = null, btnFor = null;
   const big = v => { const r = v.getBoundingClientRect(); return r.width >= 180 && r.height >= 100 && r.bottom > 40 && r.top < innerHeight - 40 && r.right > 0 && r.left < innerWidth; };
   function placeBtn() {
-    if (!miniOn || mini || saved) { if (btn) btn.style.display = "none"; return; }
+    if (!miniOn || document.fullscreenElement) { if (btn) btn.style.display = "none"; return; }
     let best = null, area = 0;
     for (const v of document.querySelectorAll("video")) {
       if (!big(v) || v.readyState < 1) continue;
@@ -138,7 +77,7 @@
     if (!best) { if (btn) btn.style.display = "none"; return; }
     if (!btn) {
       btn = document.createElement("div");
-      btn.setAttribute("aria-label", "mini player");
+      btn.setAttribute("aria-label", "picture in picture");
       const st = { position: "fixed", width: "34px", height: "34px", "z-index": "2147483646", background: "rgba(0,0,0,.62)", border: "2px solid #fff",
         "box-sizing": "border-box", cursor: "pointer", "touch-action": "manipulation" };
       for (const k in st) btn.style.setProperty(k, st[k], "important");
@@ -146,7 +85,14 @@
       const si = { position: "absolute", right: "4px", bottom: "4px", width: "13px", height: "9px", background: "#fff" };
       for (const k in si) inner.style.setProperty(k, si[k], "important");
       btn.appendChild(inner);
-      const go = e => { e.preventDefault(); e.stopPropagation(); if (btnFor) openMini(btnFor); };
+      const go = e => {
+        e.preventDefault(); e.stopPropagation();
+        const v = btnFor; if (!v) return;
+        if (v.paused) v.play().catch(() => {});
+        send({ t: "pip" });                     // Grove opens the floating window as soon as the video is full screen
+        const fs = v.requestFullscreen || v.mozRequestFullScreen;
+        try { const r = fs.call(v); if (r && r.catch) r.catch(() => send({ t: "pipcancel" })); } catch (er) { send({ t: "pipcancel" }); }
+      };
       btn.addEventListener("click", go, true);
       btn.addEventListener("touchend", go, true);
       (document.body || document.documentElement).appendChild(btn);
@@ -167,137 +113,9 @@
     clearTimeout(scrollT); scrollT = setTimeout(() => { scrolling = false; queuePlace(); }, 150);
   }, { passive: true, capture: true });
   addEventListener("resize", queuePlace, { passive: true });
+  document.addEventListener("fullscreenchange", queuePlace, true);
   for (const ev of ["play", "playing", "loadedmetadata", "emptied"]) document.addEventListener(ev, queuePlace, true);
   setInterval(() => { if (scrolling || document.hidden) return; if (document.querySelector("video")) placeBtn(); else if (btn) btn.style.display = "none"; }, 1500);
-
-  // Looks and moves like Android's own picture-in-picture window: rounded, tap for dimmed controls, snaps to the side.
-  const NS = "http://www.w3.org/2000/svg";
-  const ICON = { play: "M8 5v14l11-7z", pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z", audio: "M12 1a9 9 0 0 0-9 9v7a3 3 0 0 0 3 3h3v-8H5v-2a7 7 0 0 1 14 0v2h-4v8h3a3 3 0 0 0 3-3v-7a9 9 0 0 0-9-9z",
-    expand: "M5 5h6v2H7v4H5V5zm8 0h6v6h-2V7h-4V5zM5 13h2v4h4v2H5v-6zm12 0h2v6h-6v-2h4v-4z", close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
-    pop: "M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H3V5h18v14z" };
-  const css = (el, st) => { for (const k in st) el.style.setProperty(k, st[k], "important"); return el; };
-  function icon(name, size) {
-    const b = css(document.createElement("div"), { width: size + "px", height: size + "px", display: "flex", "align-items": "center", "justify-content": "center", cursor: "pointer", "border-radius": "50%" });
-    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", Math.round(size * .62)); svg.setAttribute("height", Math.round(size * .62));
-    const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "#fff"); path.setAttribute("d", ICON[name]); svg.appendChild(path);
-    css(svg, { "pointer-events": "none" }); b.appendChild(svg); b.setIcon = n => path.setAttribute("d", ICON[n]); return b;
-  }
-  const EASE = "cubic-bezier(.2,.9,.25,1)";
-  function openMini(v) {
-    if (mini || saved) return;
-    const w0 = Math.round(Math.min(innerWidth * 0.62, 340)), ratio = v.videoWidth && v.videoHeight ? v.videoHeight / v.videoWidth : 9 / 16;
-    const rr = Math.min(Math.max(ratio, 0.4), 1.8), h0 = Math.round(w0 * rr);
-    const r0 = v.getBoundingClientRect();
-    const m = { v, css: v.style.cssText, x: innerWidth - w0 - 12, y: innerHeight - h0 - 96, w: w0, h: h0, big: false, undo: [] };
-    m.undo = unTrap(v);
-    const box = (x, y, w, h, t) => ({ position: "fixed", left: x + "px", top: y + "px", width: w + "px", height: h + "px", right: "auto", bottom: "auto", margin: "0", opacity: "1", transform: "none",
-      transition: t ? `left ${t}ms ${EASE}, top ${t}ms ${EASE}, width ${t}ms ${EASE}, height ${t}ms ${EASE}, opacity ${t}ms, transform ${t}ms ${EASE}` : "none" });
-    m.cx = 0; m.cy = 0; m.t = 0;
-    const apply = t => {
-      m.t = t;
-      css(v, Object.assign(box(m.x - m.cx, m.y - m.cy, m.w, m.h, t), { "max-width": "none", "max-height": "none", "min-width": "0", "min-height": "0", "z-index": "2147483645", background: "#000",
-        "object-fit": "contain", "border-radius": "14px", "box-shadow": "0 8px 28px rgba(0,0,0,.5)" }));
-      css(m.over, Object.assign(box(m.x, m.y, m.w, m.h, t), { "z-index": "2147483647", "touch-action": "none", background: "transparent", "border-radius": "14px", overflow: "hidden" }));
-    };
-    m.over = document.createElement("div");
-    m.ctl = css(document.createElement("div"), { position: "absolute", inset: "0", background: "rgba(0,0,0,.45)", opacity: "0", transition: "opacity 180ms", "pointer-events": "none" });
-    m.over.appendChild(m.ctl);
-    const row = css(document.createElement("div"), { position: "absolute", left: "0", right: "0", top: "50%", transform: "translateY(-50%)", display: "flex", "justify-content": "center", gap: "10px" });
-    const aud = icon("audio", 40), exp = icon("expand", 44), pp = icon(v.paused ? "play" : "pause", 40);
-    aud.setAttribute("aria-label", "audio only"); exp.setAttribute("aria-label", "back to the player"); pp.setAttribute("aria-label", "play or pause");
-    row.append(aud, exp, pp); m.ctl.appendChild(row);
-    const x = css(icon("close", 36), { position: "absolute", top: "2px", right: "2px" }); x.setAttribute("aria-label", "close");
-    const pop = css(icon("pop", 36), { position: "absolute", top: "2px", left: "2px" }); pop.setAttribute("aria-label", "float over other apps");
-    m.ctl.append(x, pop);
-    const sync = () => pp.setIcon(v.paused ? "play" : "pause");
-    v.addEventListener("play", sync); v.addEventListener("pause", sync); m.sync = sync;
-    let shown = false, hideT = 0;
-    const show = on => { shown = on; m.ctl.style.setProperty("opacity", on ? "1" : "0", "important"); clearTimeout(hideT); if (on) hideT = setTimeout(() => show(false), 3000); };
-    m.show = show;
-    let sxp = 0, syp = 0, ox = 0, oy = 0, moved = false, down = false, hit = null, lastTap = 0;
-    m.over.addEventListener("pointerdown", e => { down = true; moved = false; hit = shown ? [aud, exp, pp, x, pop].find(b => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }) || null : null; sxp = e.clientX; syp = e.clientY; ox = m.x; oy = m.y; try { m.over.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault(); });
-    m.over.addEventListener("pointermove", e => {
-      if (!down) return;
-      const dx = e.clientX - sxp, dy = e.clientY - syp;
-      if (!moved && Math.abs(dx) + Math.abs(dy) > 8) { moved = true; show(false); }
-      if (moved) { m.x = ox + dx; m.y = Math.max(0, Math.min(innerHeight - m.h, oy + dy)); apply(0); }
-      e.preventDefault();
-    });
-    m.over.addEventListener("pointerup", e => {
-      if (!down) return;
-      down = false; e.preventDefault();
-      if (moved) {                                    // fling off the side closes it, otherwise it snaps to the nearest side
-        if (m.x + m.w < 60 || m.x > innerWidth - 60) { v.pause(); closeMini("fade"); return; }
-        snap(); apply(260); return;
-      }
-      const now = Date.now();
-      if (!hit && now - lastTap < 300) {              // double tap: bigger / smaller, like Android
-        m.big = !m.big; const k = m.big ? 1.45 : 1 / 1.45;
-        m.w = Math.round(Math.min(m.w * k, innerWidth - 24)); m.h = Math.round(m.w * rr); snap(); apply(260); lastTap = 0; show(false); return;
-      }
-      lastTap = now;
-      if (!shown || !hit) { show(!shown); return; }
-      show(true);
-      if (hit === x) { v.pause(); closeMini("fade"); }
-      else if (hit === aud) closeMini("fade");                                   // audio only: the window goes, the sound keeps playing
-      else if (hit === exp) { closeMini("back"); }
-      else if (hit === pop) { closeMini(); send({ t: "pip" }); }
-      else if (hit === pp) { if (v.paused) v.play().catch(() => {}); else v.pause(); }
-    });
-    m.over.addEventListener("pointercancel", () => { down = false; if (moved) { snap(); apply(260); } });
-    const snap = () => { m.x = m.x + m.w / 2 < innerWidth / 2 ? 12 : innerWidth - m.w - 12; m.y = Math.max(12, Math.min(innerHeight - m.h - 12, m.y)); };
-    m.onResize = () => { snap(); apply(0); }; addEventListener("resize", m.onResize);
-    (document.body || document.documentElement).appendChild(m.over);
-    mini = m;
-    send({ t: "mini", on: true });
-    // grow out of the video's spot on the page into the corner
-    const tx = m.x, ty = m.y; m.x = r0.left; m.y = r0.top; m.w = Math.max(60, r0.width); m.h = Math.max(40, r0.height);
-    apply(0);
-    // some sites (YouTube) put the video inside a box that shifts "fixed" positions: measure where it really landed and correct
-    const vr = v.getBoundingClientRect(); m.cx = Math.round(vr.left - m.x); m.cy = Math.round(vr.top - m.y);
-    if (m.cx || m.cy) apply(0);
-    void m.over.offsetWidth;
-    // the site's player rewrites the video's size and position all the time: put ours back whenever it does
-    m.mo = new MutationObserver(() => {
-      if (mini !== m) return;
-      const st = v.style;
-      if (st.getPropertyValue("left") !== (m.x - m.cx) + "px" || st.getPropertyValue("width") !== m.w + "px" || st.getPropertyPriority("left") !== "important" || st.getPropertyPriority("width") !== "important") apply(0);
-    });
-    m.mo.observe(v, { attributes: true, attributeFilter: ["style", "class"] });
-    m.x = tx; m.y = ty; m.w = w0; m.h = h0; requestAnimationFrame(() => apply(300));
-    placeBtn();
-    m.gone = setInterval(() => { if (!v.isConnected) closeMini(); }, 1000);
-  }
-  function closeMini(how) {
-    const m = mini;
-    if (!m) return;
-    mini = null;
-    send({ t: "mini", on: false });
-    if (m.mo) m.mo.disconnect();
-    clearInterval(m.gone); removeEventListener("resize", m.onResize);
-    m.v.removeEventListener("play", m.sync); m.v.removeEventListener("pause", m.sync);
-    const done = () => {
-      m.v.style.cssText = m.css;
-      for (const [p, c] of m.undo) p.style.cssText = c;
-      m.over.remove();
-      if (how === "back") { try { m.v.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (er) {} if (m.v.paused) m.v.play().catch(() => {}); }
-      queuePlace();
-    };
-    if (!how) return done();
-    for (const el of [m.v, m.over]) css(el, { transition: `opacity 200ms, transform 200ms ${EASE}`, opacity: "0", transform: how === "back" ? "scale(1.08)" : "scale(.85)" });
-    setTimeout(done, 210);
-  }
-
-  // While the mini player is open, a tapped link opens in a new tab, so the video keeps playing (in Grove's floating window).
-  addEventListener("click", e => {
-    if (!mini) return;
-    const a = e.target && e.target.closest && e.target.closest("a[href]");
-    if (!a || mini.over.contains(a)) return;
-    let u; try { u = new URL(a.href, location.href); } catch (er) { return; }
-    if (!/^https?:$/.test(u.protocol) || (u.pathname === location.pathname && u.search === location.search && u.hash)) return;
-    e.preventDefault(); e.stopImmediatePropagation();
-    send({ t: "open", url: u.href });
-  }, true);
 
   // ---------- YouTube: no "Video paused. Continue watching?" interruptions
   if (/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) {

@@ -402,9 +402,8 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
             }
             "media" -> {
                 toggle(I.PlayArrow, "background play", p.bgPlay == 1, "keep playing when you leave grove") { vm.setBgPlay(p.bgPlay == 0) }
-                val pipSel = when (p.pip) { 1 -> 0; 2 -> 1; else -> 2 }
-                choice(I.Home, "picture in picture", listOf("any video", "full-screen video only", "off"), pipSel) { p.pip = when (it) { 0 -> 1; 1 -> 2; else -> 0 } }
-                toggle(I.List, "mini player button", p.miniBtn == 1, "on videos") { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
+                toggle(I.Home, "picture in picture", p.pip != 0, "full-screen video floats when you leave grove") { p.pip = if (p.pip != 0) 0 else 1 }
+                toggle(I.List, "picture in picture button", p.miniBtn == 1, "on videos") { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
             }
             "downloads" -> {
                 choice(I.KeyboardArrowDown, "download with", listOf("grove", "another app"), p.downloader) { p.downloader = it }

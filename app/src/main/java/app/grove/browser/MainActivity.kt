@@ -77,7 +77,7 @@ open class MainActivity : ComponentActivity() {
                 BrowserScreen(vm)
                 // Android 12+: swiping home while a video plays goes straight to picture-in-picture.
                 val t = vm.cur
-                LaunchedEffect(t?.videoPlaying, t?.playing, vm.prefs.pip) { updatePip() }
+                LaunchedEffect(t?.videoPlaying, t?.playing, vm.fullscreen, vm.prefs.pip) { updatePip() }
             }
         }
     }
@@ -101,15 +101,10 @@ open class MainActivity : ComponentActivity() {
 
     // ---------- picture-in-picture ----------
 
-    /** Settings: 0 off, 1 any playing video when going home, 2 only a full-screen video. */
+    /** Like Firefox: a playing full-screen video floats when you leave Grove (setting on/off). */
     private fun pipWanted(): Boolean {
         val t = vm.cur ?: return false
-        val media = t.videoPlaying || t.playing
-        return ready && when (vm.prefs.pip) {
-            1 -> t.videoPlaying || (vm.fullscreen && t.playing)
-            2 -> vm.fullscreen && media
-            else -> false
-        }
+        return ready && vm.prefs.pip != 0 && vm.fullscreen && (t.videoPlaying || t.playing)
     }
 
     private fun pipParams(): PictureInPictureParams {
@@ -118,10 +113,10 @@ open class MainActivity : ComponentActivity() {
         val ratio = when { r > 2.39f -> Rational(239, 100); r < 0.42f -> Rational(42, 100); else -> Rational((r * 1000).toInt(), 1000) }
         val b = PictureInPictureParams.Builder().setAspectRatio(ratio)
         if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(pipWanted()).setSeamlessResizeEnabled(false)
-        // same buttons as Grove's own mini player: audio only, play/pause (Android adds expand and close)
+        // play in background (window closes, sound keeps going) and play/pause; Android adds expand and close
         val playing = t?.playing == true || t?.videoPlaying == true
         b.setActions(listOf(
-            pipAction(R.drawable.ic_pip_audio, "Audio only", PIP_AUDIO, 1),
+            pipAction(R.drawable.ic_pip_audio, "Play in background", PIP_AUDIO, 1),
             if (playing) pipAction(R.drawable.ic_pip_pause, "Pause", PIP_PLAY, 2) else pipAction(R.drawable.ic_pip_play, "Play", PIP_PLAY, 2),
         ))
         return b.build()

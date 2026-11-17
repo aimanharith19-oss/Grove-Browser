@@ -40,8 +40,6 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var videoPlaying by mutableStateOf(false)
     var videoW = 16L
     var videoH = 9L
-    /** The page's mini player is open (the video floats). Leaving the tab then keeps the video in Grove's floating window. */
-    var miniOpen = false
     /** Connections to the Grove helper script in this tab's frames (picture-in-picture, background play). */
     val ports = mutableListOf<WebExtension.Port>()
     /** Which page frames have a video playing (a frame without video must not cancel one that has). */
@@ -128,7 +126,7 @@ class Prefs(ctx: Context) {
     var etp by IntPref(sp, "etp", 0)
     /** 1 = draw pages on a plain surface (smoother video; applies after restart). */
     var surface by IntPref(sp, "surface", 0)
-    /** 1 = small "mini player" button on videos. */
+    /** 1 = small picture-in-picture button on videos. */
     var miniBtn by IntPref(sp, "miniBtn", 1)
     /** 0 = address bar at the bottom, 1 = at the top. */
     var barTop by IntPref(sp, "barTop", 0)
