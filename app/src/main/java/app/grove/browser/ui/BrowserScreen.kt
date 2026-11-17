@@ -1,5 +1,6 @@
 package app.grove.browser.ui
 
+import androidx.compose.material.icons.filled.*
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager

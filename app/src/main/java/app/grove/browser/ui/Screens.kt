@@ -1,5 +1,7 @@
 package app.grove.browser.ui
 
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.material.icons.filled.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -165,7 +167,7 @@ fun TabsSheet(vm: BrowserVM, visible: Boolean, onClose: () -> Unit) {
                 .clip(shape).background(cs.surface).navigationBarsPadding()) {
                 // handle + header: drag down to close
                 Column(Modifier.fillMaxWidth().pointerInput(Unit) {
-                    androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                    detectVerticalDragGestures(
                         onDragEnd = { if (drag > size.height * 2.5f) onClose(); drag = 0f },
                         onDragCancel = { drag = 0f },
                     ) { c, d -> c.consume(); drag += d }
