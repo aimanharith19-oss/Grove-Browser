@@ -65,22 +65,50 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch, { once: true }); else watch();
   }
 
+  // A parent box with a transform, filter, contain, etc. traps "position: fixed" (YouTube's player does this) and can clip
+  // the video: switch those off on the video's ancestors while it floats, and give back a list to undo it.
+  function unTrap(v) {
+    const undo = [];
+    for (let p = v.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      const cs = getComputedStyle(p), on = x => x && x !== "none";
+      if (on(cs.transform) || on(cs.translate) || on(cs.scale) || on(cs.rotate) || on(cs.filter) || on(cs.backdropFilter) || on(cs.perspective)
+        || /paint|layout|strict|content/.test(cs.contain) || cs.contentVisibility === "auto" || /transform|filter|perspective|translate|scale|rotate/.test(cs.willChange)) {
+        undo.push([p, p.style.cssText]);
+        for (const k of ["transform", "translate", "scale", "rotate", "filter", "backdrop-filter", "perspective", "contain", "content-visibility", "will-change"])
+          p.style.setProperty(k, k === "will-change" ? "auto" : k === "content-visibility" ? "visible" : "none", "important");
+      }
+    }
+    return undo;
+  }
+
   // Picture-in-picture: make the playing video fill the (small) window. Uses inline styles so page CSP can't block it.
-  const FILL = { position: "fixed", inset: "0", width: "100vw", height: "100vh", "max-width": "none", "max-height": "none",
-    "z-index": "2147483647", background: "#000", "object-fit": "contain", transform: "none", margin: "0" };
+  // Sites' players rewrite the video's inline size and position on every resize (entering picture-in-picture is one),
+  // so the video is watched and the fill put back whenever that happens.
+  const FILL = { position: "fixed", left: "0px", top: "0px", right: "0px", bottom: "0px", width: "100vw", height: "100vh", "max-width": "none", "max-height": "none",
+    "min-width": "0px", "min-height": "0px", "z-index": "2147483647", background: "#000", "object-fit": "contain", transform: "none", translate: "none", margin: "0px",
+    "border-radius": "0px", "box-shadow": "none", opacity: "1", transition: "none", visibility: "visible" };
   function pip(on) {
     if (saved) {
+      saved.mo.disconnect();
       saved.v.style.cssText = saved.css;
+      for (const [p, c] of saved.undo) p.style.cssText = c;
       document.documentElement.style.overflow = saved.html;
       saved = null;
+      queuePlace();
     }
     if (!on) return;
     if (mini) closeMini();
     if (btn) btn.style.setProperty("display", "none", "important");
     const v = playingVideo() || last;
     if (!v) return;
-    saved = { v, css: v.style.cssText, html: document.documentElement.style.overflow };
-    for (const k in FILL) v.style.setProperty(k, FILL[k], "important");
+    const st = v.style;
+    const fill = () => { for (const k in FILL) st.setProperty(k, FILL[k], "important"); };
+    saved = { v, css: st.cssText, html: document.documentElement.style.overflow, undo: unTrap(v) };
+    fill();
+    saved.mo = new MutationObserver(() => {
+      if (["width", "height", "left", "top", "transform"].some(k => st.getPropertyValue(k) !== FILL[k] || st.getPropertyPriority(k) !== "important")) fill();
+    });
+    saved.mo.observe(v, { attributes: true, attributeFilter: ["style"] });
     document.documentElement.style.setProperty("overflow", "hidden", "important");
   }
 
@@ -149,13 +177,7 @@
     const rr = Math.min(Math.max(ratio, 0.4), 1.8), h0 = Math.round(w0 * rr);
     const r0 = v.getBoundingClientRect();
     const m = { v, css: v.style.cssText, x: innerWidth - w0 - 12, y: innerHeight - h0 - 96, w: w0, h: h0, big: false, undo: [] };
-    for (let p = v.parentElement; p && p !== document.documentElement; p = p.parentElement) {
-      const cs = getComputedStyle(p);
-      if (cs.transform !== "none" || cs.filter !== "none" || cs.perspective !== "none" || /paint|layout|strict|content/.test(cs.contain) || cs.willChange.includes("transform")) {
-        m.undo.push([p, p.style.cssText]);
-        for (const k of ["transform", "filter", "perspective", "contain", "will-change"]) p.style.setProperty(k, k === "will-change" ? "auto" : "none", "important");
-      }
-    }
+    m.undo = unTrap(v);
     const box = (x, y, w, h, t) => ({ position: "fixed", left: x + "px", top: y + "px", width: w + "px", height: h + "px", right: "auto", bottom: "auto", margin: "0", opacity: "1", transform: "none",
       transition: t ? `left ${t}ms ${EASE}, top ${t}ms ${EASE}, width ${t}ms ${EASE}, height ${t}ms ${EASE}, opacity ${t}ms, transform ${t}ms ${EASE}` : "none" });
     m.cx = 0; m.cy = 0; m.t = 0;
