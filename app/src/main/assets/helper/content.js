@@ -115,12 +115,18 @@
     btn.style.setProperty("left", Math.max(4, Math.min(innerWidth - 40, r.right - 42)) + "px", "important");
     btn.style.setProperty("top", Math.max(4, r.top + 8) + "px", "important");
   }
-  let placeQueued = false;
-  const queuePlace = () => { if (!placeQueued) { placeQueued = true; requestAnimationFrame(() => { placeQueued = false; placeBtn(); }); } };
-  addEventListener("scroll", queuePlace, { passive: true, capture: true });
+  // Placing the button measures the page, so it never runs while scrolling (that made scrolling stutter): the button hides
+  // during a scroll and comes back 150 ms after it stops. Pages without video do no work at all.
+  let placeQueued = false, scrollT = 0, scrolling = false;
+  const queuePlace = () => { if (scrolling || !document.querySelector("video")) return; if (!placeQueued) { placeQueued = true; requestAnimationFrame(() => { placeQueued = false; placeBtn(); }); } };
+  addEventListener("scroll", () => {
+    if (!btn || btn.style.display === "none") { if (!btnFor) return; }
+    scrolling = true; if (btn) btn.style.setProperty("display", "none", "important");
+    clearTimeout(scrollT); scrollT = setTimeout(() => { scrolling = false; queuePlace(); }, 150);
+  }, { passive: true, capture: true });
   addEventListener("resize", queuePlace, { passive: true });
   for (const ev of ["play", "playing", "loadedmetadata", "emptied"]) document.addEventListener(ev, queuePlace, true);
-  setInterval(() => { if (document.querySelector("video")) placeBtn(); else if (btn) btn.style.display = "none"; }, 1500);
+  setInterval(() => { if (scrolling || document.hidden) return; if (document.querySelector("video")) placeBtn(); else if (btn) btn.style.display = "none"; }, 1500);
 
   // Looks and moves like Android's own picture-in-picture window: rounded, tap for dimmed controls, snaps to the side.
   const NS = "http://www.w3.org/2000/svg";

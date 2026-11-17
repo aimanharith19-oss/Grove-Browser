@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -160,7 +161,7 @@ fun BrowserScreen(vm: BrowserVM) {
 
     val bg = MaterialTheme.colorScheme.background
     val tint = barColor(t)
-    val edge by animateColorAsState(if (overlay == Overlay.NONE && !t.home) tint else bg, wp(300), label = "edge")
+    val edge by animateColorAsState(if ((overlay == Overlay.NONE || overlay == Overlay.TABS) && !t.home) tint else bg, wp(300), label = "edge")
     val view = LocalView.current
     SideEffect {
         WindowCompat.getInsetsController(activity.window, view).apply {
@@ -168,6 +169,7 @@ fun BrowserScreen(vm: BrowserVM) {
             isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
         }
     }
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().background(edge)
             .then(when {
@@ -186,7 +188,7 @@ fun BrowserScreen(vm: BrowserVM) {
             }
         }
         val barTop = vm.prefs.barTop == 1
-        val bar: @Composable () -> Unit = { if (!immersive && !standalone && overlay == Overlay.NONE) {
+        val bar: @Composable () -> Unit = { if (!immersive && !standalone && (overlay == Overlay.NONE || overlay == Overlay.TABS)) {
             val items = buildList {
                 val web = !t.home && Urls.isWeb(t.url)
                 // tiles (5 per row): the things used every day
@@ -241,7 +243,6 @@ fun BrowserScreen(vm: BrowserVM) {
                 (fadeIn(wp(240)) + slideInVertically(wp(380)) { it / 12 }) togetherWith fadeOut(wp(140))
             }, label = "overlay") { o ->
                 when (o) {
-                    Overlay.TABS -> TabsScreen(vm) { overlay = Overlay.NONE }
                     Overlay.FAVORITES -> LinksScreen("favorites", vm.bookmarks.items.map { it.title to it.url },
                         onOpen = { vm.go(it); overlay = Overlay.NONE }, onLong = { editBm = vm.bookmarks.items[it] })
                     Overlay.RECENT -> LinksScreen("recent", vm.history.items.asReversed().map { it.title to it.url },
@@ -251,7 +252,7 @@ fun BrowserScreen(vm: BrowserVM) {
                     Overlay.SAVED -> LinksScreen("saved pages", vm.saved.items.map { it.title to it.url },
                         onOpen = { u -> vm.saved.items.firstOrNull { it.url == u }?.let { vm.openSaved(it) }; overlay = Overlay.NONE },
                         onLong = { i -> vm.saved.items.getOrNull(i)?.let { vm.deleteSaved(it); vm.toast("removed") } })
-                    Overlay.NONE -> Box(Modifier.fillMaxSize())
+                    Overlay.NONE, Overlay.TABS -> Box(Modifier.fillMaxSize())
                 }
             }
         }
@@ -260,6 +261,9 @@ fun BrowserScreen(vm: BrowserVM) {
             progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
             color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
         )
+    }
+    // open tabs slide up over the page, like Firefox for Android
+    if (!standalone) TabsSheet(vm, overlay == Overlay.TABS && !immersive) { overlay = Overlay.NONE }
     }
 
     PromptDialog(vm)
@@ -353,14 +357,14 @@ private fun AppBar(
             Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 val loading = t.progress in 1..99
                 // row 1: back, forward, reload, favorite, new tab
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundBtn("←", "back", fg, t.canBack) { t.session.goBack(); onMenu(false) }
-                    RoundBtn("→", "forward", fg, t.canFwd) { t.session.goForward(); onMenu(false) }
-                    RoundBtn(if (loading) "✕" else "↻", if (loading) "stop" else "refresh", fg, !t.home) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 8.dp, bottom = 4.dp)) {
+                    RoundBtn(androidx.compose.material.icons.Icons.Default.ArrowBack, "back", fg, t.canBack) { t.session.goBack(); onMenu(false) }
+                    RoundBtn(androidx.compose.material.icons.Icons.Default.ArrowForward, "forward", fg, t.canFwd) { t.session.goForward(); onMenu(false) }
+                    RoundBtn(if (loading) androidx.compose.material.icons.Icons.Default.Close else androidx.compose.material.icons.Icons.Default.Refresh, if (loading) "stop" else "refresh", fg, !t.home) {
                         if (loading) t.session.stop() else t.session.reload(); onMenu(false)
                     }
-                    RoundBtn(if (isFavorite) "★" else "☆", "favorite", fg, onFavorite != null) { onMenu(false); onFavorite?.invoke() }
-                    RoundBtn("+", "new tab", fg, true) { vm.newTab(); onMenu(false) }
+                    RoundBtn(androidx.compose.material.icons.Icons.Default.Star, "favorite", fg, onFavorite != null, dim = !isFavorite) { onMenu(false); onFavorite?.invoke() }
+                    RoundBtn(androidx.compose.material.icons.Icons.Default.Add, "new tab", fg, true) { vm.newTab(); onMenu(false) }
                 }
                 // tiles, 5 per row
                 val tiles = items.filter { it.icon != null }
@@ -403,13 +407,14 @@ fun barColor(t: Tab): Color {
 }
 
 @Composable
-private fun RoundBtn(glyph: String, label: String, fg: Color, enabled: Boolean, onClick: () -> Unit) {
-    Column(Modifier.alpha(if (enabled) 1f else 0.35f).clickable(enabled = enabled, onClick = onClick).padding(4.dp),
+private fun RowScope.RoundBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, fg: Color, enabled: Boolean, dim: Boolean = false, onClick: () -> Unit) {
+    // equal-width columns, icon drawn as a vector so it sits exactly in the middle of its circle
+    Column(Modifier.weight(1f).alpha(if (enabled) 1f else 0.35f).clickable(enabled = enabled, onClick = onClick).padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(42.dp).border(2.dp, fg, CircleShape), contentAlignment = Alignment.Center) {
-            Text(glyph, color = fg, fontSize = 18.sp)
+            androidx.compose.material3.Icon(icon, label, tint = if (dim) fg.copy(alpha = 0.45f) else fg, modifier = Modifier.size(22.dp))
         }
-        Text(label, color = fg, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(label, color = fg, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
     }
 }
 

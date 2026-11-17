@@ -27,7 +27,7 @@ let show = function (r) {
     box.appendChild(row);
   }
   if (first) { $('custom').value = r.settings.custom; first = false; }
-  for (const [id, arr, key] of [['allowed', r.settings.allowed, 'unallow'], ['paused', r.settings.paused, 'pauseoff']]) {
+  for (const [id, arr, key] of [['allowed', r.settings.allowed, 'unallow']]) {
     const b = $(id); b.textContent = '';
     if (!arr.length) { b.innerHTML = '<p class="dim">None</p>'; continue; }
     for (const h of arr) {

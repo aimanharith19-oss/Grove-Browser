@@ -59,7 +59,6 @@ jobs:
             grep -E " (I|W) Grove" logcat.txt | head -20 || true
             grep -iE "GeckoChildProcess|tab[0-9]* (crash|died)|Process.*died|SIGSEGV|signal 11|gpu.*fail|contentProcess" logcat.txt | head -30 || true
             ! grep -q "FATAL EXCEPTION" logcat.txt
-            grep -qE "uBO (installed|ready)" logcat.txt
             grep -q "helper connected" logcat.txt
             grep -q "Groveguard ready" logcat.txt
             grep -E "Groveguard linked" logcat.txt || echo "NOT LINKED"

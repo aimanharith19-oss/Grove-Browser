@@ -213,9 +213,7 @@ async function settings() {
   const s = (await kv('settings')) || {};
   if (!s.lists) { s.lists = {}; for (const l of LISTS) s.lists[l.id] = l.on; }
   for (const l of LISTS) if (l.adult) s.lists[l.id] = true; // 18+ lists are locked on
-  if (s.blocking === undefined) s.blocking = true;
-  if (s.danger === undefined) s.danger = true;
-  if (!s.paused) s.paused = [];
+  s.blocking = true; s.danger = true; s.paused = []; // Grove Browser: protection can't be turned off
   if (!s.myBlock) s.myBlock = [];
   if (!s.myAllow) s.myAllow = [];
   if (!s.allowed) s.allowed = [];

@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -138,69 +143,116 @@ fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Un
     }
 }
 
+/**
+ * Open tabs in a sheet that slides up over the page, like Firefox for Android: rounded top, a handle to drag it down,
+ * "tabs" and "inprivate" pages, each tab a card with its picture; the one you're on is outlined. Swipe a card sideways to close it.
+ */
 @Composable
-fun TabsScreen(vm: BrowserVM, onClose: () -> Unit) {
+fun TabsSheet(vm: BrowserVM, visible: Boolean, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().tintBackground()) {
-        Header("tabs")
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2), modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(vm.tabs.toList()) { tab ->
-                val active = tab === vm.cur
-                val src = remember(tab) { MutableInteractionSource() }
-                val shot = tab.thumb
-                // Swipe a tab left or right to close it.
-                var dx by remember(tab) { mutableFloatStateOf(0f) }
-                // Each open tab is drawn as a small window: a title bar (site icon, title, ✕) over a picture of the page.
-                // The tab you're on has an accent title bar and frame; a new tab shows "new tab" instead of a picture.
-                val ctx = LocalContext.current
-                val bar = if (active) cs.primary else if (tab.private) Color(0xFF4A2C6E) else cs.surfaceContainerHighest
-                val barFg = if (active || tab.private) Color.White else cs.onSurface
-                Column(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.8f)
-                    .graphicsLayer { translationX = dx; alpha = 1f - (abs(dx) / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.85f) }
-                    .pointerInput(tab) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = { if (abs(dx) > size.width * 0.38f) vm.closeTab(tab); dx = 0f },
-                            onDragCancel = { dx = 0f },
-                        ) { change, d -> change.consume(); dx += d }
+    val spring = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.86f, stiffness = 420f)
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.animation.AnimatedVisibility(visible, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose))
+        }
+        androidx.compose.animation.AnimatedVisibility(visible, modifier = Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.slideInVertically(spring) { it }, exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(220)) { it }) {
+            var private by remember { mutableStateOf(vm.cur?.private == true) }
+            var drag by remember { mutableFloatStateOf(0f) }
+            val shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            Column(Modifier.fillMaxWidth().fillMaxHeight(0.86f)
+                .graphicsLayer { translationY = drag.coerceAtLeast(0f) }
+                .clip(shape).background(cs.surface).navigationBarsPadding()) {
+                // handle + header: drag down to close
+                Column(Modifier.fillMaxWidth().pointerInput(Unit) {
+                    androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                        onDragEnd = { if (drag > size.height * 2.5f) onClose(); drag = 0f },
+                        onDragCancel = { drag = 0f },
+                    ) { c, d -> c.consume(); drag += d }
+                }) {
+                    Box(Modifier.padding(top = 10.dp).align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(cs.onSurface.copy(alpha = 0.3f)))
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val normal = vm.tabs.count { !it.private }; val priv = vm.tabs.size - normal
+                        SheetTab("tabs  $normal", !private) { private = false }
+                        SheetTab("inprivate  $priv", private) { private = true }
+                        Spacer(Modifier.weight(1f))
+                        if (vm.closed.isNotEmpty()) Text("reopen", color = cs.primary, fontSize = 15.sp,
+                            modifier = Modifier.clickable { vm.reopenClosed(); onClose() }.padding(10.dp))
                     }
-                    .border(if (active) 3.dp else 1.dp, if (active) cs.primary else cs.onSurface.copy(alpha = 0.3f))
-                    .clickable(interactionSource = src, indication = LocalIndication.current) { vm.select(tab); onClose() }) {
-                    // title bar
-                    Row(Modifier.fillMaxWidth().height(34.dp).background(bar).padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val icon = if (tab.home) null else Icons.get(ctx, tab.url)
-                        if (icon != null) Box(Modifier.size(18.dp).background(Color.White), contentAlignment = Alignment.Center) { Image(icon, null, Modifier.size(14.dp)) }
-                        else Text(if (tab.private) "◐" else if (tab.home) "+" else "•", color = barFg, fontSize = 14.sp)
-                        Text(if (tab.home) "new tab" else tab.title.ifBlank { Urls.host(tab.url) }, color = barFg, fontSize = 13.sp, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
-                        Text("✕", color = barFg, fontSize = 16.sp, modifier = Modifier.clickable { vm.closeTab(tab) }.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+                val list = vm.tabs.filter { it.private == private }
+                Box(Modifier.weight(1f)) {
+                    if (list.isEmpty()) Text(if (private) "no inprivate tabs" else "no tabs", color = cs.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center))
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 88.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(list, key = { System.identityHashCode(it) }) { tab -> TabCard(vm, tab, onClose) }
                     }
-                    // the page
-                    Box(Modifier.fillMaxWidth().weight(1f).background(cs.background)) {
-                        when {
-                            shot != null && !tab.home -> Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-                            tab.home -> Box(Modifier.fillMaxSize().tintBackground(), contentAlignment = Alignment.Center) {
-                                Text("new tab", color = cs.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Light)
-                            }
-                            else -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(Urls.host(tab.url), color = cs.onSurfaceVariant, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        if (active) Text("now", color = Color.White, fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.BottomEnd).background(cs.primary).padding(horizontal = 6.dp, vertical = 2.dp))
-                        if (tab.private) Text("inprivate", color = Color.White, fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.BottomStart).background(Color(0xFF4A2C6E)).padding(horizontal = 6.dp, vertical = 2.dp))
+                    // new tab button, bottom right (like Firefox's)
+                    Row(Modifier.align(Alignment.BottomEnd).padding(16.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                        .background(if (private) Color(0xFF4A2C6E) else cs.primary).clickable { vm.newTab(private = private); onClose() }
+                        .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        Text(if (private) "inprivate tab" else "new tab", color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().background(cs.surfaceVariant).padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Text("new tab", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.newTab(); onClose() }.padding(10.dp))
-            Text("new inprivate", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.newTab(private = true); onClose() }.padding(10.dp))
-            if (vm.closed.isNotEmpty()) Text("reopen closed", fontSize = 18.sp, color = cs.onSurface, modifier = Modifier.clickable { vm.reopenClosed(); onClose() }.padding(10.dp))
+    }
+}
+
+@Composable
+private fun SheetTab(label: String, on: Boolean, click: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Text(label, fontSize = 15.sp, color = if (on) Color.White else cs.onSurface,
+        modifier = Modifier.padding(end = 8.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+            .background(if (on) cs.primary else cs.surfaceVariant).clickable(onClick = click).padding(horizontal = 14.dp, vertical = 7.dp))
+}
+
+@Composable
+private fun TabCard(vm: BrowserVM, tab: app.grove.browser.Tab, onClose: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
+    val active = tab === vm.cur
+    val src = remember(tab) { MutableInteractionSource() }
+    var dx by remember(tab) { mutableFloatStateOf(0f) }
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+    Column(Modifier.pressTile(src).fillMaxWidth().aspectRatio(0.78f)
+        .graphicsLayer { translationX = dx; alpha = 1f - (abs(dx) / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.85f) }
+        .pointerInput(tab) {
+            detectHorizontalDragGestures(
+                onDragEnd = { if (abs(dx) > size.width * 0.38f) vm.closeTab(tab); dx = 0f },
+                onDragCancel = { dx = 0f },
+            ) { change, d -> change.consume(); dx += d }
+        }
+        .clip(shape)
+        .border(if (active) 3.dp else 1.dp, if (active) cs.primary else cs.onSurface.copy(alpha = 0.15f), shape)
+        .background(cs.surfaceContainerHigh)
+        .clickable(interactionSource = src, indication = LocalIndication.current) { vm.select(tab); onClose() }) {
+        Box(Modifier.fillMaxWidth().weight(1f).background(cs.background)) {
+            val shot = tab.thumb
+            when {
+                shot != null && !tab.home -> Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                tab.home -> Box(Modifier.fillMaxSize().tintBackground(), contentAlignment = Alignment.Center) {
+                    Text("new tab", color = cs.onBackground, fontSize = 17.sp, fontWeight = FontWeight.Light)
+                }
+                else -> Box(Modifier.fillMaxSize().padding(10.dp), contentAlignment = Alignment.Center) {
+                    Text(Urls.host(tab.url), color = cs.onSurfaceVariant, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(38.dp).padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val icon = if (tab.home) null else Icons.get(ctx, tab.url)
+            if (icon != null) Image(icon, null, Modifier.size(16.dp))
+            Text(if (tab.home) "new tab" else tab.title.ifBlank { Urls.host(tab.url) }, color = cs.onSurface, fontSize = 13.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
+            Box(Modifier.size(38.dp).clickable { vm.closeTab(tab) }, contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Close, "close", tint = cs.onSurface, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -256,139 +308,113 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::importBookmarks) }
     val autoDir = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { u -> vm.setBackupFolder(u) } }
     val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
+    val I = androidx.compose.material.icons.Icons.Default
+    var open by remember { mutableStateOf<String?>(null) } // the choice row that's expanded
 
-    @Composable fun section(s: String) =
-        Text(s, color = cs.primary, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp))
-    @Composable fun option(s: String, on: Boolean, click: () -> Unit) =
-        Text(s, fontSize = 19.sp, color = if (on) cs.primary else cs.onBackground,
-            fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = click).padding(horizontal = 16.dp, vertical = 8.dp))
-    @Composable fun info(s: String) =
-        Text(s, fontSize = 14.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+    // One setting per row: icon, short name, and its value (a switch, or the current choice) on the right.
+    @Composable fun row(icon: ImageVector, title: String, value: String? = null, sub: String? = null, click: () -> Unit, end: @Composable () -> Unit = {}) =
+        Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(36.dp).clip(CircleShape).background(cs.primary.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(icon, null, tint = cs.primary, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Text(title, fontSize = 17.sp, color = cs.onBackground)
+                if (value != null) Text(value, fontSize = 13.sp, color = cs.primary)
+                if (sub != null) Text(sub, fontSize = 12.sp, color = cs.onSurfaceVariant)
+            }
+            end()
+        }
+    @Composable fun toggle(icon: ImageVector, title: String, on: Boolean, sub: String? = null, click: () -> Unit) =
+        row(icon, title, sub = sub, click = click) { androidx.compose.material3.Switch(on, { click() }) }
+    @Composable fun choice(icon: ImageVector, title: String, options: List<String>, sel: Int, pick: (Int) -> Unit) {
+        val expanded = open == title
+        row(icon, title, value = options.getOrNull(sel) ?: "", click = { open = if (expanded) null else title }) {
+            androidx.compose.material3.Icon(if (expanded) I.KeyboardArrowUp else I.KeyboardArrowDown, null, tint = cs.onSurfaceVariant)
+        }
+        androidx.compose.animation.AnimatedVisibility(expanded) {
+            Column(Modifier.fillMaxWidth().padding(start = 50.dp)) {
+                options.forEachIndexed { i, o ->
+                    Row(Modifier.fillMaxWidth().clickable { pick(i); open = null }.padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(sel == i, { pick(i); open = null })
+                        Text(o, fontSize = 15.sp, color = cs.onBackground)
+                    }
+                }
+            }
+        }
+    }
+    @Composable fun group(s: String) =
+        Text(s.uppercase(), color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 2.dp))
 
-    // Settings as a short list of categories; each opens its own page (back returns to the list).
     var page by remember { mutableStateOf<String?>(null) }
-    androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null; open = null }
     val pages = listOf(
-        "general" to "search engine, address bar, links in apps, default browser",
-        "appearance" to "theme, accent colour, full screen, text size, zoom",
-        "privacy & security" to "tracker blocker, https, secure dns, site data",
-        "media & downloads" to "background play, picture in picture, mini player, downloads",
-        "favorites" to "back up, restore, automatic backup",
-        "extensions" to "groveguard, ublock origin, firefox add-ons",
-        "troubleshooting & about" to "reset web engine, version",
+        Triple("general", I.Home, "search, address bar, links"),
+        Triple("appearance", I.Edit, "theme, colour, text size"),
+        Triple("privacy", I.Lock, "trackers, https, dns, data"),
+        Triple("media", I.PlayArrow, "background, picture in picture"),
+        Triple("downloads", I.KeyboardArrowDown, "where files go"),
+        Triple("favorites", I.Star, "backup and restore"),
+        Triple("extensions", I.Build, "groveguard, add-ons"),
+        Triple("about", I.Info, "grove browser $version"),
     )
     Column(Modifier.fillMaxSize().tintBackground().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
         Header(page ?: "settings")
         when (page) {
-            null -> pages.forEach { (name, sub) ->
-                Column(Modifier.fillMaxWidth().clickable { if (name == "extensions") onAddons() else page = name }.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(name, fontSize = 24.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
-                    Text(sub, fontSize = 13.sp, color = cs.onSurfaceVariant)
-                }
-            }
+            null -> pages.forEach { (name, icon, sub) -> row(icon, name, sub = sub, click = { if (name == "extensions") onAddons() else page = name }) }
             "general" -> {
-                section("search engine")
-                ENGINES.forEachIndexed { i, (name, _) -> option(name, p.engine == i) { p.engine = i } }
-                section("address bar")
-                listOf("at the bottom", "at the top").forEachIndexed { i, s -> option(s, p.barTop == i) { p.barTop = i } }
-                info("swipe left or right on the address bar to switch tabs")
-                section("open links in apps")
-                listOf("ask", "always", "never").forEachIndexed { i, s -> option(s, p.appLinks == i) { p.appLinks = i } }
-                info("e.g. youtube.com links can open the youtube app")
-                section("default browser")
-                option("make grove your default browser", false) {
+                choice(I.Search, "search engine", ENGINES.map { it.first }, p.engine) { p.engine = it }
+                choice(I.KeyboardArrowDown, "address bar", listOf("bottom", "top"), p.barTop) { p.barTop = it }
+                choice(I.ExitToApp, "open links in apps", listOf("ask", "always", "never"), p.appLinks) { p.appLinks = it }
+                row(I.CheckCircle, "default browser", sub = "make grove your default", click = {
                     runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
-                }
+                })
             }
             "appearance" -> {
-                section("theme")
-                listOf("system", "dark", "light").forEachIndexed { i, s -> option(s, p.theme == i) { p.theme = i } }
-                section("accent colour")
-                ACCENTS.indices.chunked(5).forEach { row ->
+                choice(I.Edit, "theme", listOf("system", "dark", "light"), p.theme) { p.theme = it }
+                group("accent colour")
+                ACCENTS.indices.chunked(5).forEach { r ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { i ->
-                            Box(Modifier.weight(1f).aspectRatio(1f).background(Color(ACCENTS[i]))
-                                .then(if (p.accent == i) Modifier.border(3.dp, cs.onBackground) else Modifier)
+                        r.forEach { i ->
+                            Box(Modifier.weight(1f).aspectRatio(1f).clip(CircleShape).background(Color(ACCENTS[i]))
+                                .then(if (p.accent == i) Modifier.border(3.dp, cs.onBackground, CircleShape) else Modifier)
                                 .clickable { p.accent = i })
                         }
                     }
                 }
-                section("screen")
-                option("full screen: " + if (p.immersive == 1) "on" else "off", false) { p.immersive = 1 - p.immersive }
-                info("hides android's status bar and navigation bar so pages use the whole screen. swipe from the top or bottom edge to see them")
-                section("text size on websites")
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(80, 100, 120, 150, 200).forEach { v ->
-                        Box(Modifier.weight(1f).height(44.dp).background(if (p.textSize == v) cs.primary else cs.surfaceVariant)
-                            .clickable { p.textSize = v; vm.applyPrefs() }, contentAlignment = Alignment.Center) {
-                            Text("$v%", color = if (p.textSize == v) Color.White else cs.onSurface, fontSize = 15.sp)
-                        }
-                    }
+                group("screen")
+                toggle(I.KeyboardArrowUp, "full screen", p.immersive == 1, "hide status and navigation bars") { p.immersive = 1 - p.immersive }
+                choice(I.Create, "text size", listOf(80, 100, 120, 150, 200).map { "$it%" }, listOf(80, 100, 120, 150, 200).indexOf(p.textSize)) {
+                    p.textSize = listOf(80, 100, 120, 150, 200)[it]; vm.applyPrefs()
                 }
-                option("zoom on every website: " + if (p.forceZoom == 1) "on" else "off", false) { p.forceZoom = 1 - p.forceZoom; vm.applyPrefs() }
-                info("lets you pinch to zoom even on sites that try to stop it")
+                toggle(I.Search, "always allow zoom", p.forceZoom == 1) { p.forceZoom = 1 - p.forceZoom; vm.applyPrefs() }
             }
-            "privacy & security" -> {
-                section("website tracker blocker")
-                listOf("strict: trackers, fingerprinters, crypto-miners, social and cross-site cookies", "standard", "off").forEachIndexed { i, s ->
-                    option(s, p.etp == i) { p.etp = i; Gecko.setEtp(i) }
-                }
-                info("the ••• menu (more…) shows how many trackers were blocked on the page · cookies are isolated per site")
-                section("secure connections (https)")
-                listOf("https first (recommended)", "https only: warn before any http page", "allow http").forEachIndexed { i, s ->
-                    option(s, p.https == i) { p.https = i; Gecko.setHttps(i) }
-                }
-                info("switching between \"first\" and \"allow http\" applies after grove restarts")
-                section("secure dns (dns over https)")
-                option("off: use your network's dns", p.doh == 0) { p.doh = 0; vm.applyPrefs() }
-                DOH.forEachIndexed { i, (name, _) -> option(name, p.doh == i + 1) { p.doh = i + 1; vm.applyPrefs() } }
-                info("hides which sites you look up from your network provider. falls back to normal dns if the provider can't be reached")
-                section("site permissions")
-                info("location, camera, microphone and notifications: each site asks first, and grove remembers your answer")
-                section("site data")
-                option("delete history and site data when you quit: " + if (p.clearOnQuit == 1) "on" else "off", false) { p.clearOnQuit = 1 - p.clearOnQuit }
-                info("adds \"quit\" to the ••• menu; quitting closes every tab and deletes cookies, cache and recent pages")
-                option("delete history and site data now", false) { confirmClear = true }
-                info("ads, trackers, scam, phishing, 18+ and crypto-mining sites are blocked by groveguard and ublock origin · no telemetry, no studies, no ai, no vpn, no sponsored content")
+            "privacy" -> {
+                choice(I.Lock, "tracker blocker", listOf("strict", "standard", "off"), p.etp) { p.etp = it; Gecko.setEtp(it) }
+                choice(I.CheckCircle, "https", listOf("https first", "https only", "allow http"), p.https) { p.https = it; Gecko.setHttps(it) }
+                choice(I.Place, "secure dns", listOf("off") + DOH.map { it.first }, p.doh) { p.doh = it; vm.applyPrefs() }
+                group("site data")
+                toggle(I.ExitToApp, "clear when you quit", p.clearOnQuit == 1, "adds quit to the ••• menu") { p.clearOnQuit = 1 - p.clearOnQuit }
+                row(I.Delete, "clear history and site data", click = { confirmClear = true })
+                Text("groveguard blocks ads, trackers, scams and 18+ sites · no telemetry", fontSize = 12.sp, color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
             }
-            "media & downloads" -> {
-                section("background play")
-                option("background play: " + if (p.bgPlay == 1) "on" else "off", false) { vm.setBgPlay(p.bgPlay == 0) }
-                info("keeps any audio or video playing when you leave grove or turn off the screen")
-                section("picture in picture")
-                listOf("any playing video, when you go home", "only full-screen video", "off (use ••• > pop out)").forEachIndexed { i, s ->
-                    val mode = if (i == 2) 0 else i + 1
-                    option(s, p.pip == mode) { p.pip = mode }
-                }
-                section("mini player")
-                option("mini player button on videos: " + if (p.miniBtn == 1) "on" else "off", false) { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
-                info("tap the small button on a video and it floats in a corner while you keep reading; drag it anywhere, ✕ puts it back")
-                section("downloads")
-                listOf("grove downloads files", "use another app (a download manager)").forEachIndexed { i, s -> option(s, p.downloader == i) { p.downloader = i } }
+            "media" -> {
+                toggle(I.PlayArrow, "background play", p.bgPlay == 1, "keep playing when you leave grove") { vm.setBgPlay(p.bgPlay == 0) }
+                val pipSel = when (p.pip) { 1 -> 0; 2 -> 1; else -> 2 }
+                choice(I.Home, "picture in picture", listOf("any video", "full-screen video only", "off"), pipSel) { p.pip = when (it) { 0 -> 1; 1 -> 2; else -> 0 } }
+                toggle(I.List, "mini player button", p.miniBtn == 1, "on videos") { p.miniBtn = 1 - p.miniBtn; vm.toast("applies to pages you open from now") }
+            }
+            "downloads" -> {
+                choice(I.KeyboardArrowDown, "download with", listOf("grove", "another app"), p.downloader) { p.downloader = it }
             }
             "favorites" -> {
-                section("backup")
-                option("back up favorites", false) { backup.launch("grove-favorites.json") }
-                option("restore favorites", false) { restore.launch(arrayOf("*/*")) }
-                info("restore also reads bookmark files exported from firefox, chrome, vivaldi and others (.html or .json)")
-                section("automatic backup")
+                row(I.Send, "back up", click = { backup.launch("grove-favorites.json") })
+                row(I.Refresh, "restore", sub = "also firefox, chrome, vivaldi files", click = { restore.launch(arrayOf("*/*")) })
                 val folder = vm.backupFolder
-                option("automatic backup: " + (folder?.let { "on, in \"$it\"" } ?: "off"), false) { if (folder == null) autoDir.launch(null) else vm.setBackupFolder(null) }
-                info("pick a folder once; grove then keeps grove-favorites.json there up to date every time your favorites change")
+                toggle(I.DateRange, "automatic backup", folder != null, folder) { if (folder == null) autoDir.launch(null) else vm.setBackupFolder(null) }
             }
-            "troubleshooting & about" -> {
-                section("troubleshooting")
-                option("reset web engine", false) {
-                    p.sp.edit().putBoolean("resetEngine", true).commit()
-                    val ctx2 = ctx.applicationContext
-                    val i = ctx2.packageManager.getLaunchIntentForPackage(ctx2.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                    ctx2.startActivity(i)
-                    Runtime.getRuntime().exit(0)
-                }
-                info("if websites show black or won't load: starts the web engine fresh. you'll be signed out of websites; favorites, history, saved pages and settings stay")
-                section("about")
-                info("grove browser $version · gecko engine")
+            "about" -> {
+                row(I.Info, "grove browser", value = version, sub = "gecko engine", click = {})
             }
         }
     }

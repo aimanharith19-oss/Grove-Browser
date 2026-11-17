@@ -56,13 +56,6 @@ object Gecko {
     private fun create(ctx: Context): GeckoRuntime {
         app = ctx
         val sp = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE)
-        if (sp.getBoolean("resetEngine", false)) {
-            // "reset web engine" in settings: start the engine with a fresh profile (favorites, history and settings are Grove's own files and stay)
-            File(ctx.filesDir, "mozilla").deleteRecursively()
-            ctx.cacheDir.deleteRecursively()
-            sp.edit().remove("resetEngine").commit()
-            Log.i("Grove", "web engine reset")
-        }
         val https = sp.getInt("https", 0)
         val cfg = File(ctx.filesDir, "gecko.yaml").apply { writeText(config(httpsFirst = https == 0)) }
         val blocking = ContentBlocking.Settings.Builder()
@@ -223,23 +216,21 @@ object Gecko {
     }
 
     /** Installs the uBlock Origin release bundled in the APK, signed by Mozilla, as a normal add-on. */
+    /**
+     * Groveguard (built in, always on) already blocks with the same uBlock Origin / EasyList lists, plus element hiding and
+     * ad-script blocking. Running uBlock Origin too doubles the work on every request and page, which made pages laggy,
+     * so it is no longer added, and it is switched off once on phones that have it (it can be switched back on in extensions).
+     */
     private fun installUblock(ctx: Context, r: GeckoRuntime) {
         val sp = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE)
-        if (sp.getBoolean("ubo_removed", false) || ctx.assets.list("")?.contains("ubo.xpi") != true) return
         val ctl = r.webExtensionController
         ctl.list().accept({ list ->
-            val have = list.orEmpty().firstOrNull { it.id == UBO_ID }
-            if (have != null && !have.isBuiltIn) { Log.i("Grove", "uBO ready ${have.metaData.version}"); return@accept }
-            val go = {
-                val f = File(ctx.cacheDir, "ubo.xpi")
-                ctx.assets.open("ubo.xpi").use { i -> f.outputStream().use { i.copyTo(it) } }
-                ctl.install(f.toURI().toString()).accept({ e ->
-                    Log.i("Grove", "uBO installed ${e?.metaData?.version}")
-                    f.delete(); refresh(r)
-                }, { e -> Log.w("Grove", "uBO install failed", e) })
-            }
-            // Older Grove builds loaded it as a built-in; replace that with the real add-on.
-            if (have != null) ctl.uninstall(have).accept({ go() }, { go() }) else go()
+            val have = list.orEmpty().firstOrNull { it.id == UBO_ID } ?: return@accept
+            if (have.isBuiltIn) { ctl.uninstall(have).accept({ refresh(r) }, { refresh(r) }); return@accept }
+            if (!sp.getBoolean("ubo_off_once", false) && have.metaData.enabled) {
+                sp.edit().putBoolean("ubo_off_once", true).apply()
+                ctl.disable(have, ENABLE_USER).accept({ refresh(r); toast("uBlock Origin switched off: Groveguard already blocks the same ads, so pages are faster") }, { refresh(r) })
+            } else sp.edit().putBoolean("ubo_off_once", true).apply()
         }, { Log.w("Grove", "list failed", it) })
     }
 
