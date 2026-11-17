@@ -237,6 +237,7 @@
     m.onResize = () => { snap(); apply(0); }; addEventListener("resize", m.onResize);
     (document.body || document.documentElement).appendChild(m.over);
     mini = m;
+    send({ t: "mini", on: true });
     // grow out of the video's spot on the page into the corner
     const tx = m.x, ty = m.y; m.x = r0.left; m.y = r0.top; m.w = Math.max(60, r0.width); m.h = Math.max(40, r0.height);
     apply(0);
@@ -259,6 +260,7 @@
     const m = mini;
     if (!m) return;
     mini = null;
+    send({ t: "mini", on: false });
     if (m.mo) m.mo.disconnect();
     clearInterval(m.gone); removeEventListener("resize", m.onResize);
     m.v.removeEventListener("play", m.sync); m.v.removeEventListener("pause", m.sync);
@@ -273,6 +275,17 @@
     for (const el of [m.v, m.over]) css(el, { transition: `opacity 200ms, transform 200ms ${EASE}`, opacity: "0", transform: how === "back" ? "scale(1.08)" : "scale(.85)" });
     setTimeout(done, 210);
   }
+
+  // While the mini player is open, a tapped link opens in a new tab, so the video keeps playing (in Grove's floating window).
+  addEventListener("click", e => {
+    if (!mini) return;
+    const a = e.target && e.target.closest && e.target.closest("a[href]");
+    if (!a || mini.over.contains(a)) return;
+    let u; try { u = new URL(a.href, location.href); } catch (er) { return; }
+    if (!/^https?:$/.test(u.protocol) || (u.pathname === location.pathname && u.search === location.search && u.hash)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    send({ t: "open", url: u.href });
+  }, true);
 
   // ---------- YouTube: no "Video paused. Continue watching?" interruptions
   if (/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) {

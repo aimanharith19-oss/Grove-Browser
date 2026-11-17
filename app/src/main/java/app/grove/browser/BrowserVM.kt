@@ -155,12 +155,41 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         }, 25)
     }
 
+    /**
+     * Grove's own floating video window: a tab whose video keeps playing in a small window over Grove while you use
+     * other tabs and websites. It starts when you leave a tab whose mini player is open (or open a link from it).
+     */
+    var floating by mutableStateOf<Tab?>(null); private set
+
+    private fun postTo(t: Tab, m: JSONObject) = t.ports.forEach { runCatching { it.postMessage(m) } }
+
+    fun startFloating(t: Tab) {
+        if (floating === t) return
+        floating?.let { stopFloating(keepPlaying = false) }
+        floating = t
+        t.session.setActive(true)
+        postTo(t, JSONObject().put("pip", true).put("bg", true)) // the video fills the small window and keeps playing
+    }
+
+    /** Ends the floating window. keepPlaying: the sound goes on in the background ("audio only"). */
+    fun stopFloating(keepPlaying: Boolean, back: Boolean = false) {
+        val t = floating ?: return
+        floating = null
+        postTo(t, JSONObject().put("pip", false))
+        if (back) { select(t); return }
+        if (!keepPlaying) { t.media?.pause(); if (t !== cur && t.session.isOpen) t.session.setActive(false) }
+        if (prefs.bgPlay == 0 && !keepPlaying) postTo(t, JSONObject().put("bg", false))
+    }
+
     fun select(t: Tab) {
         if (!t.session.isOpen) return selectWhenOpen(t)
         val prev = cur
         val ctl = runtime.webExtensionController
-        if (prev !== t && prev != null && prev in tabs && prev.session.isOpen) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
+        if (t === floating) { floating = null; postTo(t, JSONObject().put("pip", false)) }
+        val float = prev !== t && prev != null && prev in tabs && prev.miniOpen && (prev.videoPlaying || prev.playing)
+        if (prev !== t && prev != null && prev in tabs && prev.session.isOpen && !float && prev !== floating) { prev.session.setActive(false); ctl.setTabActive(prev.session, false) }
         cur = t
+        if (float) startFloating(prev!!)
         // The tab you're looking at gets top priority from Android, so it stays smooth while others idle.
         t.session.setActive(true)
         ctl.setTabActive(t.session, true)
@@ -172,6 +201,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
         if (i < 0) return
         if (!t.private && Urls.isWeb(t.url)) { closed.add(0, Closed(t.title, t.url)); while (closed.size > 15) closed.removeAt(closed.lastIndex) }
         tabs.removeAt(i)
+        if (floating === t) floating = null
         if (MediaHub.session === t.media && t.media != null) MediaHub.update(null, "", false)
         tabs.forEach { if (it.parent === t) it.parent = null }
         if (cur === t) {
@@ -526,6 +556,9 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         if (m.optString("t") == "theme") t.theme = parseColor(m.optString("c"))
                         if (m.optString("t") == "reader") readerResult(t, m)
                         if (m.optString("t") == "pip" && t === cur) enterPip?.invoke() // ⧉ on the mini player
+                        if (m.optString("t") == "mini") t.miniOpen = m.optBoolean("on")
+                        // a link tapped while the mini player is open: it opens in a new tab and the video keeps playing in the floating window
+                        if (m.optString("t") == "open" && t === cur) m.optString("url").takeIf { Urls.isWeb(it) }?.let { newTab(it) }
                         if (m.optString("t") == "video") {
                             t.videoFrames[port] = m.optBoolean("playing")
                             t.videoPlaying = t.videoFrames.values.any { it }

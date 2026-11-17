@@ -1,0 +1,79 @@
+name: piptest
+on: { workflow_dispatch: {} }
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "current" }
+      - name: Bundle uBlock Origin
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          url=$(gh api repos/gorhill/uBlock/releases --jq '[.[] | select(.prerelease|not) | .assets[] | select(.name|endswith(".firefox.signed.xpi"))][0].browser_download_url')
+          curl -fsSL "$url" -o app/src/main/assets/ubo.xpi
+          unzip -tq app/src/main/assets/ubo.xpi
+      - name: Bundle Readability (reader view)
+        run: |
+          npm pack @mozilla/readability@0.6.0 --silent
+          tar -xzOf mozilla-readability-0.6.0.tgz package/Readability.js > app/src/main/assets/helper/Readability.js
+          rm mozilla-readability-0.6.0.tgz
+          test -s app/src/main/assets/helper/Readability.js
+      - name: Signing key (so Groveguard trusts the test build)
+        env: { KS: "${{ secrets.GROVE_KEYSTORE }}", PW: "${{ secrets.GROVE_KS_PASS }}" }
+        run: |
+          echo "$KS" | sed 's/^GROVE_KEYSTORE *= *//' | tr -d ' \r\n' | base64 -d > $RUNNER_TEMP/grove.jks
+          pw=$(printf '%s' "$PW" | sed 's/^.*= *//' | tr -d ' \r\n')
+          keytool -list -keystore $RUNNER_TEMP/grove.jks -storepass "$pw" >/dev/null 2>&1 || pw="c220b803016a2f1120d5fc93"
+          echo "GROVE_KS_PASS=$pw" >> $GITHUB_ENV
+          echo "GROVE_KEYSTORE_FILE=$RUNNER_TEMP/grove.jks" >> $GITHUB_ENV
+      - run: gradle assembleRelease
+      - name: Engine version
+        run: |
+          gradle -q app:dependencies --configuration releaseRuntimeClasspath | grep -i geckoview | head -3
+          curl -fsSL https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview/maven-metadata.xml | grep -oE '<version>[^<]+' | tail -6
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Test page with a video
+        run: |
+          mkdir -p /tmp/www && cd /tmp/www
+          which ffmpeg || sudo apt-get install -y -qq ffmpeg
+          ffmpeg -v error -f lavfi -i testsrc=size=640x360:rate=25 -t 60 -pix_fmt yuv420p -c:v libx264 t.mp4
+          cat > index.html <<'H'
+          <!doctype html><meta name=viewport content="width=device-width"><body style="margin:0;background:#fff">
+          <div style="height:60px;background:#222;color:#fff">header</div>
+          <div id=player style="transform:translateZ(0);contain:paint;overflow:hidden;position:relative;width:100%;aspect-ratio:16/9">
+          <video id=v src=t.mp4 autoplay muted loop playsinline style="position:absolute;left:0;top:0;width:100%;height:100%"></video></div>
+          <p style="font-size:30px">page text page text page text</p>
+          <script>const v=document.getElementById('v');addEventListener('resize',()=>{const r=player.getBoundingClientRect();v.style.width=r.width+'px';v.style.height=r.height+'px';v.style.left='0px';v.style.top='0px'});setInterval(()=>v.play().catch(()=>{}),1000)</script>
+          H
+          nohup python3 -m http.server 8000 >/dev/null 2>&1 &
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/release/app-x86_64-release.apk
+            adb shell am start -n app.grove.browser/.MainActivity
+            sleep 35
+            adb shell am start -a android.intent.action.VIEW -d http://10.0.2.2:8000/index.html app.grove.browser
+            sleep 20
+            adb shell screencap -p /sdcard/a.png && adb pull /sdcard/a.png before.png
+            adb logcat -c
+            adb shell input keyevent KEYCODE_HOME
+            sleep 4
+            adb shell screencap -p /sdcard/b.png && adb pull /sdcard/b.png pip1.png
+            sleep 8
+            adb shell screencap -p /sdcard/c.png && adb pull /sdcard/c.png pip2.png
+            adb shell dumpsys activity activities | grep -iE "pinned|windowingMode|mBounds" | head -20 || true
+            adb logcat -d > pip-logcat.txt || true
+            grep -iE "Grove|GeckoConsole|pip" pip-logcat.txt | head -60 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: pip, path: "*.png\npip-logcat.txt" }

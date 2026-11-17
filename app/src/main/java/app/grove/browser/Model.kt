@@ -40,6 +40,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     var videoPlaying by mutableStateOf(false)
     var videoW = 16L
     var videoH = 9L
+    /** The page's mini player is open (the video floats). Leaving the tab then keeps the video in Grove's floating window. */
+    var miniOpen = false
     /** Connections to the Grove helper script in this tab's frames (picture-in-picture, background play). */
     val ports = mutableListOf<WebExtension.Port>()
     /** Which page frames have a video playing (a frame without video must not cancel one that has). */
