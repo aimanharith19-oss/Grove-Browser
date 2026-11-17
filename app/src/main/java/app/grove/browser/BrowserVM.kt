@@ -79,6 +79,8 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     var filePicker: ((FilePrompt, GeckoResult<PromptResponse>) -> Unit)? = null
     var external: ((Intent, String?) -> Unit)? = null
     var pip by mutableStateOf(false); private set
+    /** The tab shown in Grove's floating video window (see startFloating). Declared early: tabs are restored during init. */
+    var floating by mutableStateOf<Tab?>(null); private set
     var appLink by mutableStateOf<AppLinkAsk?>(null)
     var needNotifPermission by mutableStateOf(false)
     var permAsk by mutableStateOf<PermAsk?>(null)
@@ -159,7 +161,6 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
      * Grove's own floating video window: a tab whose video keeps playing in a small window over Grove while you use
      * other tabs and websites. It starts when you leave a tab whose mini player is open (or open a link from it).
      */
-    var floating by mutableStateOf<Tab?>(null); private set
 
     private fun postTo(t: Tab, m: JSONObject) = t.ports.forEach { runCatching { it.postMessage(m) } }
 

@@ -65,15 +65,23 @@ class MediaService : Service() {
             PAUSE -> MediaHub.session?.pause()
             STOP -> { MediaHub.session?.pause(); MediaHub.update(null, "", false) }
         }
-        refresh()
+        begun = true
+        refresh(started = true)
         return START_NOT_STICKY
     }
 
     private fun pi(action: String) =
         PendingIntent.getService(this, action.hashCode(), Intent(this, MediaService::class.java).setAction(action), PendingIntent.FLAG_IMMUTABLE)
 
-    private fun refresh() {
+    /** started: called from startForegroundService, so Android needs startForeground() now, whatever the state (else it kills Grove). */
+    private var begun = false
+    private fun refresh(started: Boolean = false) {
+        if (!begun) return // wait for onStartCommand (stopping before startForeground also crashes)
         if (MediaHub.session == null) {
+            if (started) runCatching {
+                startForeground(ID, Notification.Builder(this, CH).setSmallIcon(R.drawable.ic_launcher_fg).setContentTitle("Grove").build(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            }
             stopForeground(STOP_FOREGROUND_REMOVE); nm.cancel(ID); stopSelf(); return
         }
         val playing = MediaHub.playing
@@ -104,8 +112,8 @@ class MediaService : Service() {
             .addAction(toggle).addAction(close)
             .setStyle(Notification.MediaStyle().setMediaSession(ms.sessionToken).setShowActionsInCompactView(0, 1))
             .build()
-        if (playing) runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }.onFailure { nm.notify(ID, n) }
-        else { stopForeground(STOP_FOREGROUND_DETACH); nm.notify(ID, n) }
+        if (playing || started) runCatching { startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }.onFailure { nm.notify(ID, n) }
+        if (!playing) { stopForeground(STOP_FOREGROUND_DETACH); nm.notify(ID, n) }
     }
 
     private var icon: android.graphics.Bitmap? = null
