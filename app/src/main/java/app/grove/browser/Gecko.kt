@@ -273,7 +273,7 @@ prefs:
   dom.security.https_first_pbm: $httpsFirst
   media.peerconnection.ice.default_address_only: true
   media.autoplay.default: 1
-  media.suspend-background-video.enabled: false
+  media.suspend-bkgnd-video.enabled: false
   media.videocontrols.picture-in-picture.enabled: false
   browser.cache.memory.capacity: 65536
   general.smoothScroll: true
