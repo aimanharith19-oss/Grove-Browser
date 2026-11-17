@@ -1,5 +1,6 @@
 name: piptest
 on: { workflow_dispatch: {} }
+permissions: { contents: write }
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -74,6 +75,9 @@ jobs:
             adb shell dumpsys activity activities | grep -iE "pinned|windowingMode|mBounds" | head -20 || true
             adb logcat -d > pip-logcat.txt || true
             grep -iE "Grove|GeckoConsole|pip" pip-logcat.txt | head -60 || true
-      - uses: actions/upload-artifact@v4
+      - name: Publish screenshots to the piptest branch
         if: always()
-        with: { name: pip, path: "*.png\npip-logcat.txt" }
+        run: |
+          mkdir /tmp/out && cp *.png pip-logcat.txt /tmp/out/ 2>/dev/null; cd /tmp/out
+          git init -q -b piptest && git add -A && git -c user.name=ci -c user.email=ci@local commit -qm pip
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" piptest
