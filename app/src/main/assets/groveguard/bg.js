@@ -57,12 +57,14 @@ let BROWSER = navigator.userAgent.includes('Firefox') ? 'Firefox' : navigator.us
 let linkTries = 0, linkGot = false;
 function linkViaGroveBrowser() {
   try {
-    if (!api.runtime.connectNative || linkGot) return;
+    if (!api.runtime.connectNative) { if (!linkTries++) console.log('groveguard: no native messaging here'); return; }
+    if (linkGot) return;
+    console.log('groveguard: asking the browser for the Groveguard link, try', linkTries + 1);
     const port = api.runtime.connectNative('groveguard');
     // Grove Browser may not be listening yet right after start-up (or Groveguard isn't installed yet): ask again later
     let retried = false;
     const again = () => { if (retried || linkGot) return; retried = true; try { port.disconnect(); } catch (e) { } if (++linkTries < 40) setTimeout(linkViaGroveBrowser, Math.min(60000, 5000 * linkTries)); };
-    port.onDisconnect.addListener(again);
+    port.onDisconnect.addListener(p => { console.log('groveguard: link port closed', (p && p.error && p.error.message) || ''); again(); });
     setTimeout(again, 20000);
     port.onMessage.addListener(async m => {
       if (!m || typeof m.code !== 'string') return;

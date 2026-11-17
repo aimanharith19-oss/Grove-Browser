@@ -63,6 +63,7 @@ jobs:
             grep -q "helper connected" logcat.txt
             grep -q "Groveguard ready" logcat.txt
             grep -E "Groveguard linked" logcat.txt || echo "NOT LINKED"
+            grep -E "GeckoConsole|W Grove|E Grove" logcat.txt | grep -iE "groveguard|web-protection|native|connect|grove" | head -30 || true
             adb shell run-as app.grove.browser true 2>/dev/null; true
       - name: Is the page drawn? (black-screen check)
         if: always()
