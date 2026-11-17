@@ -75,6 +75,8 @@
       saved = null;
     }
     if (!on) return;
+    if (mini) closeMini();
+    if (btn) btn.style.setProperty("display", "none", "important");
     const v = playingVideo() || last;
     if (!v) return;
     saved = { v, css: v.style.cssText, html: document.documentElement.style.overflow };
@@ -156,8 +158,10 @@
     }
     const box = (x, y, w, h, t) => ({ position: "fixed", left: x + "px", top: y + "px", width: w + "px", height: h + "px", right: "auto", bottom: "auto", margin: "0", opacity: "1", transform: "none",
       transition: t ? `left ${t}ms ${EASE}, top ${t}ms ${EASE}, width ${t}ms ${EASE}, height ${t}ms ${EASE}, opacity ${t}ms, transform ${t}ms ${EASE}` : "none" });
+    m.cx = 0; m.cy = 0; m.t = 0;
     const apply = t => {
-      css(v, Object.assign(box(m.x, m.y, m.w, m.h, t), { "max-width": "none", "max-height": "none", "min-width": "0", "min-height": "0", "z-index": "2147483645", background: "#000",
+      m.t = t;
+      css(v, Object.assign(box(m.x - m.cx, m.y - m.cy, m.w, m.h, t), { "max-width": "none", "max-height": "none", "min-width": "0", "min-height": "0", "z-index": "2147483645", background: "#000",
         "object-fit": "contain", "border-radius": "14px", "box-shadow": "0 8px 28px rgba(0,0,0,.5)" }));
       css(m.over, Object.assign(box(m.x, m.y, m.w, m.h, t), { "z-index": "2147483647", "touch-action": "none", background: "transparent", "border-radius": "14px", overflow: "hidden" }));
     };
@@ -213,7 +217,18 @@
     mini = m;
     // grow out of the video's spot on the page into the corner
     const tx = m.x, ty = m.y; m.x = r0.left; m.y = r0.top; m.w = Math.max(60, r0.width); m.h = Math.max(40, r0.height);
-    apply(0); void m.over.offsetWidth;
+    apply(0);
+    // some sites (YouTube) put the video inside a box that shifts "fixed" positions: measure where it really landed and correct
+    const vr = v.getBoundingClientRect(); m.cx = Math.round(vr.left - m.x); m.cy = Math.round(vr.top - m.y);
+    if (m.cx || m.cy) apply(0);
+    void m.over.offsetWidth;
+    // the site's player rewrites the video's size and position all the time: put ours back whenever it does
+    m.mo = new MutationObserver(() => {
+      if (mini !== m) return;
+      const st = v.style;
+      if (st.getPropertyValue("left") !== (m.x - m.cx) + "px" || st.getPropertyValue("width") !== m.w + "px" || st.getPropertyPriority("left") !== "important" || st.getPropertyPriority("width") !== "important") apply(0);
+    });
+    m.mo.observe(v, { attributes: true, attributeFilter: ["style", "class"] });
     m.x = tx; m.y = ty; m.w = w0; m.h = h0; requestAnimationFrame(() => apply(300));
     placeBtn();
     m.gone = setInterval(() => { if (!v.isConnected) closeMini(); }, 1000);
@@ -222,6 +237,7 @@
     const m = mini;
     if (!m) return;
     mini = null;
+    if (m.mo) m.mo.disconnect();
     clearInterval(m.gone); removeEventListener("resize", m.onResize);
     m.v.removeEventListener("play", m.sync); m.v.removeEventListener("pause", m.sync);
     const done = () => {
