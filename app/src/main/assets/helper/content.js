@@ -90,6 +90,7 @@
   function pip(on) {
     if (saved) {
       saved.mo.disconnect();
+      if (saved.cv) saved.cv.remove();
       saved.v.style.cssText = saved.css;
       for (const [p, c] of saved.undo) p.style.cssText = c;
       document.documentElement.style.overflow = saved.html;
@@ -110,6 +111,26 @@
     });
     saved.mo.observe(v, { attributes: true, attributeFilter: ["style"] });
     document.documentElement.style.setProperty("overflow", "hidden", "important");
+    // On top of that, a canvas outside the site's own page code draws the video's frames over everything. Whatever the
+    // site does to its player when the window shrinks (YouTube hides, clips or moves it), the window still shows the video.
+    const cv = document.createElement("canvas"), g = cv.getContext("2d");
+    css(cv, { position: "fixed", left: "0px", top: "0px", width: "100vw", height: "100vh", "z-index": "2147483647", background: "#000",
+      "pointer-events": "none", margin: "0px", padding: "0px", border: "0", display: "block", opacity: "1", visibility: "visible", transform: "none" });
+    document.documentElement.appendChild(cv);
+    saved.cv = cv;
+    const me = saved;
+    const draw = () => {
+      if (saved !== me) return;
+      const dpr = devicePixelRatio || 1, W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      const vw = v.videoWidth, vh = v.videoHeight;
+      if (vw && vh) {
+        const k = Math.min(W / vw, H / vh), dw = vw * k, dh = vh * k;
+        try { g.fillStyle = "#000"; g.fillRect(0, 0, W, H); g.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (er) {}
+      }
+      requestAnimationFrame(draw);
+    };
+    draw();
   }
 
   // ---------- mini player: a small button on every video; tap it and the video floats in a corner, draggable, while you keep browsing the page

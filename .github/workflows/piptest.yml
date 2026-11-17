@@ -54,7 +54,7 @@ jobs:
           <div id=player style="transform:translateZ(0);contain:paint;overflow:hidden;position:relative;width:100%;aspect-ratio:16/9">
           <video id=v src=t.mp4 autoplay muted loop playsinline style="position:absolute;left:0;top:0;width:100%;height:100%"></video></div>
           <p style="font-size:30px">page text page text page text</p>
-          <script>const v=document.getElementById('v');addEventListener('resize',()=>{const r=player.getBoundingClientRect();v.style.width=r.width+'px';v.style.height=r.height+'px';v.style.left='0px';v.style.top='0px'});setInterval(()=>v.play().catch(()=>{}),1000)</script>
+          <script>const v=document.getElementById('v');addEventListener('resize',()=>{if(innerWidth<250)player.style.display='none';const r=player.getBoundingClientRect();v.style.width=r.width+'px';v.style.height=r.height+'px';v.style.left='0px';v.style.top='0px'});setInterval(()=>v.play().catch(()=>{}),1000)</script>
           H
           echo '<meta name=viewport content="width=device-width"><h1 style="font-size:40px">another website</h1>' > other.html
           nohup python3 -m http.server 8000 >/dev/null 2>&1 &
