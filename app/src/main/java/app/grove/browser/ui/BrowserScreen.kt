@@ -109,11 +109,17 @@ import app.grove.browser.Tab
 import app.grove.browser.Urls
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.navigationBarsPadding
 
-enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS, SAVED }
+enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS, SAVED, NOTES }
 
-/** A menu entry; entries with an icon are tiles in the ••• grid, the rest are under "more". */
-class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector? = null, val action: () -> Unit)
+/** A menu entry: an icon and label in the Edge-style menu grid. */
+class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: () -> Unit)
 
 @Composable
 fun BrowserScreen(vm: BrowserVM) {
@@ -127,6 +133,7 @@ fun BrowserScreen(vm: BrowserVM) {
     var query by remember { mutableStateOf("") }
     var find by remember { mutableStateOf(false) }
     var editBm by remember { mutableStateOf<Bookmark?>(null) }
+    var pageFx by remember { mutableStateOf(false) }
 
     val standalone = vm.webApp != null
     val immersive = vm.fullscreen || vm.pip
@@ -140,6 +147,7 @@ fun BrowserScreen(vm: BrowserVM) {
             vm.fullscreen -> t.session.exitFullScreen()
             editing -> focus.clearFocus()
             menu -> menu = false
+            pageFx -> pageFx = false
             find -> { find = false; t.session.finder.clear() }
             overlay != Overlay.NONE -> overlay = Overlay.NONE
             t.canBack -> t.session.goBack()
@@ -189,46 +197,45 @@ fun BrowserScreen(vm: BrowserVM) {
             }
         }
         val barTop = vm.prefs.barTop == 1
-        val bar: @Composable () -> Unit = { if (!immersive && !standalone && (overlay == Overlay.NONE || overlay == Overlay.TABS)) {
-            val items = buildList {
-                val web = !t.home && Urls.isWeb(t.url)
-                // tiles (5 per row): the things used every day
-                add(MenuItem("tabs", androidx.compose.material.icons.Icons.Default.List) { vm.snapshot(); overlay = Overlay.TABS })
-                add(MenuItem("favorites", androidx.compose.material.icons.Icons.Default.Star) { overlay = Overlay.FAVORITES })
-                add(MenuItem("recent", androidx.compose.material.icons.Icons.Default.DateRange) { overlay = Overlay.RECENT })
-                add(MenuItem("downloads", androidx.compose.material.icons.Icons.Default.KeyboardArrowDown) { vm.openDownloads() })
-                add(MenuItem("settings", androidx.compose.material.icons.Icons.Default.Settings) { overlay = Overlay.SETTINGS })
-                add(MenuItem("inprivate", androidx.compose.material.icons.Icons.Default.Lock) { vm.newTab(private = true) })
-                if (!t.home) add(MenuItem("share", androidx.compose.material.icons.Icons.Default.Share) { share(ctx, t.url) })
-                if (!t.home) add(MenuItem("find", androidx.compose.material.icons.Icons.Default.Search) { find = true })
-                if (web) add(MenuItem("reader", androidx.compose.material.icons.Icons.Default.Menu) { vm.reader(t, "view") })
-                if (t.videoPlaying || t.playing) add(MenuItem("pop out", androidx.compose.material.icons.Icons.Default.PlayArrow) { vm.enterPip?.invoke() })
-                // under "more"
-                if (vm.closed.isNotEmpty()) add(MenuItem("reopen closed tab") { vm.reopenClosed() })
-                if (vm.saved.items.isNotEmpty()) add(MenuItem("saved pages") { overlay = Overlay.SAVED })
-                if (web) {
-                    add(MenuItem("save for offline reading") { vm.reader(t, "save") })
-                    add(MenuItem("save as pdf") { vm.savePdf(t) })
-                    add(MenuItem("print") { vm.print(t) })
-                }
-                if (!t.home) add(MenuItem(if (t.desktop) "mobile version" else "desktop version") { vm.toggleDesktop(t) })
-                if (web) {
-                    if (t.manifest != null) add(MenuItem("install app") { vm.installWebApp(t) })
-                    add(MenuItem("pin to start") { pin(ctx, t) })
-                    if (t.trackers > 0) add(MenuItem("${t.trackers} trackers blocked here") { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
-                }
-                add(MenuItem("extensions") { overlay = Overlay.ADDONS })
-                if (vm.prefs.clearOnQuit == 1) add(MenuItem("quit") { vm.clearData(); activity.finishAndRemoveTask() })
+        val showBars = !immersive && !standalone && (overlay == Overlay.NONE || overlay == Overlay.TABS)
+        val web = !t.home && Urls.isWeb(t.url)
+        // Edge-style menu: one grid of icons (4 per row)
+        val items = buildList {
+            add(MenuItem("Favorites", androidx.compose.material.icons.Icons.Default.Star) { overlay = Overlay.FAVORITES })
+            add(MenuItem("History", EI.History) { overlay = Overlay.RECENT })
+            add(MenuItem("Downloads", EI.Download) { vm.openDownloads() })
+            add(MenuItem("Notes", EI.Note) { overlay = Overlay.NOTES })
+            add(MenuItem("InPrivate", androidx.compose.material.icons.Icons.Default.Lock) { vm.newTab(private = true) })
+            if (!t.home) add(MenuItem("Share", androidx.compose.material.icons.Icons.Default.Share) { share(ctx, t.url) })
+            if (!t.home) add(MenuItem("Find on page", androidx.compose.material.icons.Icons.Default.Search) { find = true })
+            if (web) add(MenuItem("Add note", androidx.compose.material.icons.Icons.Default.Create) { vm.noteFromPage(t) })
+            if (web) add(MenuItem("Page actions", EI.Palette) { pageFx = true })
+            if (web) add(MenuItem("Reader", EI.Reader) { vm.reader(t, "view") })
+            if (web) add(MenuItem("Picture in picture", EI.Pip) { vm.pipNow(t) })
+            if (vm.closed.isNotEmpty()) add(MenuItem("Reopen tab", EI.Reopen) { vm.reopenClosed() })
+            if (!t.home) add(MenuItem(if (t.desktop) "Mobile site" else "Desktop site", EI.Desktop) { vm.toggleDesktop(t) })
+            if (vm.saved.items.isNotEmpty()) add(MenuItem("Saved pages", EI.Saved) { overlay = Overlay.SAVED })
+            if (web) {
+                add(MenuItem("Save offline", EI.Saved) { vm.reader(t, "save") })
+                add(MenuItem("Save as PDF", EI.Download) { vm.savePdf(t) })
+                add(MenuItem("Print", EI.Print) { vm.print(t) })
+                if (t.manifest != null) add(MenuItem("Install app", EI.Install) { vm.installWebApp(t) })
+                add(MenuItem("Pin to start", EI.Pin) { pin(ctx, t) })
+                if (t.trackers > 0) add(MenuItem("${t.trackers} trackers", EI.Shield) { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
             }
-            val favorite: (() -> Unit)? = if (t.home) null else {
-                { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
-            }
-            AppBar(vm, t, editing, menu, items,
+            add(MenuItem("Extensions", EI.Puzzle) { overlay = Overlay.ADDONS })
+            add(MenuItem("Settings", androidx.compose.material.icons.Icons.Default.Settings) { overlay = Overlay.SETTINGS })
+            if (vm.prefs.clearOnQuit == 1) add(MenuItem("Quit", EI.Exit) { vm.clearData(); activity.finishAndRemoveTask() })
+        }
+        val favorite: (() -> Unit)? = if (t.home) null else {
+            { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
+        }
+        val bar: @Composable () -> Unit = { if (showBars) {
+            AddressBar(vm, t, editing,
                 onEditing = { editing = it; if (it) menu = false else query = "" },
                 onQuery = { query = it },
                 onGo = { vm.go(it); focus.clearFocus() },
-                onMenu = { menu = it }, onFavorite = favorite, isFavorite = vm.bookmarks.items.any { it.url == t.url },
-                onTabs = { vm.snapshot(); overlay = Overlay.TABS })
+                onFavorite = favorite, isFavorite = vm.bookmarks.items.any { it.url == t.url })
         } }
         if (barTop) bar()
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -237,7 +244,7 @@ fun BrowserScreen(vm: BrowserVM) {
             // Home fades in and out; screens slide up a little as they appear (Windows Phone motion).
             androidx.compose.animation.AnimatedVisibility(visible = t.home && !standalone, enter = fadeIn(wp(260)), exit = fadeOut(wp(140))) {
                 HomeScreen(vm, onOpen = { vm.go(it) }, onEdit = { editBm = it },
-                    onAdd = { editBm = Bookmark(System.currentTimeMillis(), "", "") })
+                    onAdd = { g -> editBm = Bookmark(System.currentTimeMillis(), "", "", g) })
             }
             if (editing && query.isNotBlank()) Suggestions(vm, query) { vm.go(it); focus.clearFocus() }
             AnimatedContent(overlay, transitionSpec = {
@@ -250,6 +257,7 @@ fun BrowserScreen(vm: BrowserVM) {
                         onOpen = { vm.go(it); overlay = Overlay.NONE }, onClear = { vm.clearHistory() })
                     Overlay.SETTINGS -> SettingsScreen(vm, onAddons = { overlay = Overlay.ADDONS }) { overlay = Overlay.NONE }
                     Overlay.ADDONS -> AddonsScreen(vm) { overlay = Overlay.NONE }
+                    Overlay.NOTES -> NotesScreen(vm, onOpen = { vm.go(it); overlay = Overlay.NONE })
                     Overlay.SAVED -> LinksScreen("saved pages", vm.saved.items.map { it.title to it.url },
                         onOpen = { u -> vm.saved.items.firstOrNull { it.url == u }?.let { vm.openSaved(it) }; overlay = Overlay.NONE },
                         onLong = { i -> vm.saved.items.getOrNull(i)?.let { vm.deleteSaved(it); vm.toast("removed") } })
@@ -258,6 +266,7 @@ fun BrowserScreen(vm: BrowserVM) {
             }
         }
         if (!barTop) bar()
+        if (showBars && !editing) NavBar(vm, t, onTabs = { vm.snapshot(); overlay = Overlay.TABS }, onMenu = { menu = true })
         if (standalone && !immersive && t.progress in 1..99) LinearProgressIndicator(
             progress = { t.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
             color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent, drawStopIndicator = {},
@@ -265,6 +274,8 @@ fun BrowserScreen(vm: BrowserVM) {
     }
     // open tabs slide up over the page, like Firefox for Android
     if (!standalone) TabsSheet(vm, overlay == Overlay.TABS && !immersive) { overlay = Overlay.NONE }
+    if (!standalone) MenuSheet(items, menu && !immersive) { menu = false }
+    if (!standalone) PageFxSheet(vm, t, pageFx && !immersive) { pageFx = false }
     }
 
     PromptDialog(vm)
@@ -272,8 +283,10 @@ fun BrowserScreen(vm: BrowserVM) {
     ContextMenuDialog(vm)
     InstallAddonDialog()
     AppLinkDialog(vm)
+    NoteDialog(vm)
     editBm?.let { b ->
         BookmarkDialog(b, isNew = vm.bookmarks.items.none { it.id == b.id },
+            groups = (vm.bookmarks.items.map { it.group } + vm.extraGroups).filter { it.isNotBlank() }.distinct(),
             onSave = { vm.saveBookmark(it); editBm = null },
             onDelete = { vm.deleteBookmark(b); editBm = null },
             onDismiss = { editBm = null })
@@ -317,24 +330,24 @@ private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
     )
 }
 
+/**
+ * Edge-style address bar: a rounded grey pill with the site's lock (or a search glass), the address, and refresh / favorite
+ * at the end. Swipe it sideways to go to the next or previous tab.
+ */
 @Composable
-private fun AppBar(
-    vm: BrowserVM, t: Tab, editing: Boolean, menu: Boolean, items: List<MenuItem>,
+private fun AddressBar(
+    vm: BrowserVM, t: Tab, editing: Boolean,
     onEditing: (Boolean) -> Unit, onQuery: (String) -> Unit, onGo: (String) -> Unit,
-    onMenu: (Boolean) -> Unit, onTabs: () -> Unit, onFavorite: (() -> Unit)? = null, isFavorite: Boolean = false,
+    onFavorite: (() -> Unit)? = null, isFavorite: Boolean = false,
 ) {
-    var more by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
-    val bar by animateColorAsState(barColor(t), wp(300), label = "bar")
-    val fg = if (bar.luminance() > 0.5f) Color.Black else Color.White
+    val bar = barColor(t)
+    val fg = if (bar.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
+    val pill = if (t.private) Color(0xFF3A3A3A) else cs.surfaceVariant
     val progress by animateFloatAsState(t.progress / 100f, wp(260), label = "progress")
+    val loading = t.progress in 1..99
     Column(Modifier.fillMaxWidth().background(bar)) {
-        if (t.progress in 1..99) LinearProgressIndicator(
-            progress = { progress }, modifier = Modifier.fillMaxWidth().height(2.dp),
-            color = cs.primary, trackColor = Color.Transparent, drawStopIndicator = {},
-        ) else Spacer(Modifier.height(2.dp))
-        Row(Modifier.fillMaxWidth().height(54.dp)
-            // Swipe the bar left or right to go to the next or previous tab.
+        Row(Modifier.fillMaxWidth().height(56.dp)
             .pointerInput(vm.tabs.size, vm.cur) {
                 var drag = 0f
                 detectHorizontalDragGestures(onDragStart = { drag = 0f }, onDragEnd = {
@@ -343,93 +356,123 @@ private fun AppBar(
                     if (next != null) { vm.snapshot(); vm.select(next) }
                 }) { _, d -> drag += d }
             }
-            .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            AddressBox(t, editing, onEditing, onQuery, onGo, Modifier.weight(1f))
-            if (!editing) {
-                Spacer(Modifier.width(10.dp))
-                Box(Modifier.size(34.dp).border(2.dp, fg).clickable(onClick = onTabs), contentAlignment = Alignment.Center) {
-                    Text(vm.tabs.size.toString(), color = fg, fontSize = 15.sp)
+            .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(20.dp)).background(pill).padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                val lead = when {
+                    editing || t.home -> androidx.compose.material.icons.Icons.Default.Search
+                    t.url.startsWith("https:") -> androidx.compose.material.icons.Icons.Default.Lock
+                    else -> androidx.compose.material.icons.Icons.Default.Info
                 }
-                Text("•••", color = fg, fontSize = 18.sp,
-                    modifier = Modifier.clickable { onMenu(!menu) }.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp))
+                androidx.compose.material3.Icon(lead, null, tint = fg.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
+                if (t.private && !editing) Text("InPrivate", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF0078D4)).padding(horizontal = 6.dp, vertical = 2.dp))
+                AddressBox(t, editing, onEditing, onQuery, onGo, fg, Modifier.weight(1f).padding(start = 8.dp))
+                if (!editing && !t.home) {
+                    PillBtn(if (onFavorite != null && isFavorite) androidx.compose.material.icons.Icons.Default.Star else androidx.compose.material.icons.Icons.Default.Star,
+                        "favorite", if (isFavorite) cs.primary else fg.copy(alpha = 0.45f)) { onFavorite?.invoke() }
+                    PillBtn(if (loading) androidx.compose.material.icons.Icons.Default.Close else androidx.compose.material.icons.Icons.Default.Refresh,
+                        if (loading) "stop" else "refresh", fg.copy(alpha = 0.8f)) { if (loading) t.session.stop() else t.session.reload() }
+                }
             }
         }
-        AnimatedVisibility(menu && !editing, enter = expandVertically(wp(300)) + fadeIn(wp(200)), exit = shrinkVertically(wp(200)) + fadeOut(wp(120))) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
-                val loading = t.progress in 1..99
-                // row 1: back, forward, reload, favorite, new tab
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 8.dp, bottom = 4.dp)) {
-                    RoundBtn(androidx.compose.material.icons.Icons.Default.ArrowBack, "back", fg, t.canBack) { t.session.goBack(); onMenu(false) }
-                    RoundBtn(androidx.compose.material.icons.Icons.Default.ArrowForward, "forward", fg, t.canFwd) { t.session.goForward(); onMenu(false) }
-                    RoundBtn(if (loading) androidx.compose.material.icons.Icons.Default.Close else androidx.compose.material.icons.Icons.Default.Refresh, if (loading) "stop" else "refresh", fg, !t.home) {
-                        if (loading) t.session.stop() else t.session.reload(); onMenu(false)
-                    }
-                    RoundBtn(androidx.compose.material.icons.Icons.Default.Star, "favorite", fg, onFavorite != null, dim = !isFavorite) { onMenu(false); onFavorite?.invoke() }
-                    RoundBtn(androidx.compose.material.icons.Icons.Default.Add, "new tab", fg, true) { vm.newTab(); onMenu(false) }
-                }
-                // tiles, 5 per row
-                val tiles = items.filter { it.icon != null }
-                tiles.chunked(5).forEach { row ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        row.forEach { item ->
-                            Column(Modifier.weight(1f).clickable { onMenu(false); item.action() }.padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally) {
-                                androidx.compose.material3.Icon(item.icon!!, null, tint = fg, modifier = Modifier.size(24.dp))
-                                Text(item.label, color = fg, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 4.dp))
-                            }
-                        }
-                        repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-                val rest = items.filter { it.icon == null }
-                if (rest.isNotEmpty()) {
-                    Text(if (more) "less" else "more…", color = fg.copy(alpha = 0.8f), fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth().clickable { more = !more }.padding(horizontal = 20.dp, vertical = 10.dp))
-                    if (more) rest.forEach { item ->
-                        Text(item.label, color = fg, fontSize = 19.sp, fontWeight = FontWeight.Light,
-                            modifier = Modifier.fillMaxWidth().clickable { onMenu(false); item.action() }
-                                .padding(horizontal = 24.dp, vertical = 8.dp))
-                    }
-                }
+        if (loading) LinearProgressIndicator(
+            progress = { progress }, modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = cs.primary, trackColor = Color.Transparent, drawStopIndicator = {},
+        ) else Spacer(Modifier.height(2.dp))
+    }
+}
+
+@Composable
+private fun PillBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color, onClick: () -> Unit) =
+    Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(icon, label, tint = tint, modifier = Modifier.size(20.dp))
+    }
+
+/** Edge's bottom bar: back, forward, new tab, tabs, menu — five equal slots, icons centred. */
+@Composable
+private fun NavBar(vm: BrowserVM, t: Tab, onTabs: () -> Unit, onMenu: () -> Unit) {
+    val bar = barColor(t)
+    val fg = if (bar.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
+    Row(Modifier.fillMaxWidth().height(52.dp).background(bar), verticalAlignment = Alignment.CenterVertically) {
+        NavBtn("back", t.canBack, { t.session.goBack() }) {
+            androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.ArrowBack, null, tint = fg, modifier = Modifier.size(22.dp))
+        }
+        NavBtn("forward", t.canFwd, { t.session.goForward() }) {
+            androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.ArrowForward, null, tint = fg, modifier = Modifier.size(22.dp))
+        }
+        NavBtn("new tab", true, { vm.newTab(private = t.private) }) {
+            Box(Modifier.size(34.dp).border(1.5.dp, fg, CircleShape), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, null, tint = fg, modifier = Modifier.size(22.dp))
             }
+        }
+        NavBtn("tabs", true, onTabs) {
+            Box(Modifier.size(24.dp).border(1.5.dp, fg, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                Text(vm.tabs.count { it.private == t.private }.let { if (it > 99) ":)" else it.toString() }, color = fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        NavBtn("menu", true, onMenu) {
+            androidx.compose.material3.Icon(EI.More, null, tint = fg, modifier = Modifier.size(24.dp))
         }
     }
 }
 
-/** Bar colour: the website's theme colour, else Grove's accent-tinted surface; purple for inprivate. */
 @Composable
-fun barColor(t: Tab): Color {
+private fun RowScope.NavBtn(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) =
+    Box(Modifier.weight(1f).fillMaxHeight().alpha(if (enabled) 1f else 0.35f).clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center) { content() }
+
+/** Edge's menu: a sheet that slides up with a grid of icons. */
+@Composable
+private fun MenuSheet(items: List<MenuItem>, visible: Boolean, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    return when {
-        t.private -> Color(0xFF2B1A45)
-        t.theme != null && !t.home -> Color(t.theme!!).copy(alpha = 1f)
-        else -> lerp(cs.surfaceVariant, cs.primary, 0.18f)
+    Box(Modifier.fillMaxSize()) {
+        AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose))
+        }
+        AnimatedVisibility(visible, modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 500f)) { it },
+            exit = slideOutVertically(androidx.compose.animation.core.tween(200)) { it }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                .background(cs.surface).navigationBarsPadding().padding(bottom = 8.dp)) {
+                Box(Modifier.padding(top = 8.dp, bottom = 4.dp).align(Alignment.CenterHorizontally).width(36.dp).height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(cs.onSurface.copy(alpha = 0.25f)))
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    items.chunked(4).forEach { row ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                            row.forEach { item ->
+                                Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { onClose(); item.action() }.padding(vertical = 12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    androidx.compose.material3.Icon(item.icon, null, tint = cs.onSurface, modifier = Modifier.size(24.dp))
+                                    Text(item.label, color = cs.onSurface, fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp, end = 2.dp))
+                                }
+                            }
+                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
+/** Bar colour: Edge's light (or dark) grey; dark grey for InPrivate. */
 @Composable
-private fun RowScope.RoundBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, fg: Color, enabled: Boolean, dim: Boolean = false, onClick: () -> Unit) {
-    // equal-width columns, icon drawn as a vector so it sits exactly in the middle of its circle
-    Column(Modifier.weight(1f).alpha(if (enabled) 1f else 0.35f).clickable(enabled = enabled, onClick = onClick).padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(42.dp).border(2.dp, fg, CircleShape), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(icon, label, tint = if (dim) fg.copy(alpha = 0.45f) else fg, modifier = Modifier.size(22.dp))
-        }
-        Text(label, color = fg, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
-    }
-}
+fun barColor(t: Tab): Color = if (t.private) Color(0xFF242424) else MaterialTheme.colorScheme.surface
 
 @Composable
 private fun AddressBox(
     t: Tab, editing: Boolean, onEditing: (Boolean) -> Unit, onQuery: (String) -> Unit,
-    onGo: (String) -> Unit, modifier: Modifier,
+    onGo: (String) -> Unit, fg: Color, modifier: Modifier,
 ) {
     var tf by remember { mutableStateOf(TextFieldValue("")) }
     val shown = if (editing) tf else TextFieldValue(if (t.home) "" else Urls.label(t.url))
     BasicTextField(
         value = shown,
         onValueChange = { if (editing) { tf = it; onQuery(it.text) } },
-        modifier = modifier.height(38.dp).onFocusChanged { f ->
+        modifier = modifier.fillMaxHeight().onFocusChanged { f ->
             if (f.isFocused && !editing) {
                 val s = if (t.home) "" else t.url
                 tf = TextFieldValue(s, TextRange(0, s.length))
@@ -437,13 +480,13 @@ private fun AddressBox(
             } else if (!f.isFocused && editing) onEditing(false)
         },
         singleLine = true,
-        textStyle = TextStyle(color = Color.Black, fontSize = 16.sp),
+        textStyle = TextStyle(color = fg, fontSize = 16.sp),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
         keyboardActions = KeyboardActions(onGo = { onGo(tf.text) }),
         decorationBox = { inner ->
-            Box(Modifier.fillMaxSize().background(Color.White).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                if (shown.text.isEmpty()) Text("search or enter address", color = Color.Gray, fontSize = 16.sp)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                if (shown.text.isEmpty()) Text("Search or enter web address", color = fg.copy(alpha = 0.55f), fontSize = 16.sp, maxLines = 1)
                 inner()
             }
         },

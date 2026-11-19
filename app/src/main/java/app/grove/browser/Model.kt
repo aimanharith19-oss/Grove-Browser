@@ -18,7 +18,10 @@ import java.io.File
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
-data class Bookmark(val id: Long, val title: String, val url: String)
+/** group: speed dial group (Vivaldi-style) on the home page; blank = the first group. */
+data class Bookmark(val id: Long, val title: String, val url: String, val group: String = "")
+/** A note (Vivaldi-style): text, optionally from a page. */
+data class Note(val id: Long, val text: String, val url: String, val time: Long)
 data class Visit(val title: String, val url: String, val time: Long)
 /** A page saved for offline reading (reader view), kept as one HTML file. */
 data class SavedPage(val title: String, val url: String, val time: Long, val file: String)
@@ -53,6 +56,8 @@ class Tab(session: GeckoSession, val private: Boolean, var parent: Tab? = null) 
     /** Last screenshot of the page (tab previews). */
     var thumb by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     val home get() = url.isBlank() || url == "about:blank"
+    /** Page actions (Vivaldi-style) switched on for this tab: grayscale, dark, sepia, ... (kept across pages in the tab). */
+    val fx = mutableStateListOf<String>()
 }
 
 /** Tiny JSON-file backed list (bookmarks, history). */
@@ -107,7 +112,7 @@ class Prefs(ctx: Context) {
     val sp: SharedPreferences = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE)
     var engine by IntPref(sp, "engine", 0)
     var theme by IntPref(sp, "theme", 0)
-    var accent by IntPref(sp, "accent", 2)
+    var accent by IntPref(sp, "accent2", 0)
     /** 0 = HTTPS-First, 1 = HTTPS-Only, 2 = allow HTTP */
     var https by IntPref(sp, "https", 0)
     /** 0 = ask, 1 = always open in the app, 2 = never */
@@ -129,7 +134,9 @@ class Prefs(ctx: Context) {
     /** 1 = small picture-in-picture button on videos. */
     var miniBtn by IntPref(sp, "miniBtn", 1)
     /** 0 = address bar at the bottom, 1 = at the top. */
-    var barTop by IntPref(sp, "barTop", 0)
+    var barTop by IntPref(sp, "barTop2", 1)
+    /** Edge-style picture of the day behind the new tab page. */
+    var ntpImage by IntPref(sp, "ntpImage", 1)
     /** DNS over HTTPS: 0 off, then DOH[i - 1]. */
     var doh by IntPref(sp, "doh", 0)
     /** 1 = "quit" in the menu deletes history and site data. */

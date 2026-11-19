@@ -1,5 +1,14 @@
 package app.grove.browser.ui
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.material.icons.filled.*
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -86,63 +95,153 @@ fun Modifier.pressTile(source: MutableInteractionSource): Modifier {
 
 @Composable
 fun Header(title: String) {
-    Text(title, fontSize = 52.sp, fontWeight = FontWeight.Light, maxLines = 1,
-        color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp))
+    Text(title.replaceFirstChar { it.uppercase() }, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 10.dp))
 }
 
-/** Home = every favorite as a tile (speed-dial style). */
+/**
+ * New tab page, Edge style: the picture of the day behind a search box and your favorites as quick-link tiles.
+ * Favorites are sorted into speed dial groups (Vivaldi style): tap a group to see its tiles, long-press it to rename or delete.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Unit, onAdd: () -> Unit) {
+fun HomeScreen(vm: BrowserVM, onOpen: (String) -> Unit, onEdit: (Bookmark) -> Unit, onAdd: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(150.dp),
-        modifier = Modifier.fillMaxSize().tintBackground(),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column {
-                Text("grove", fontSize = 56.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
-                Text("favorites", fontSize = 26.sp, fontWeight = FontWeight.Light, color = cs.primary)
-                Spacer(Modifier.height(4.dp))
-            }
+    LaunchedEffect(vm.prefs.ntpImage) { vm.loadNtpPicture() }
+    val pic = vm.ntpPicture
+    val onPic = pic != null
+    val groups = remember(vm.bookmarks.items.toList(), vm.extraGroups.toList()) {
+        (listOf("") + vm.bookmarks.items.map { it.group } + vm.extraGroups).distinct()
+    }
+    var group by rememberSaveable { mutableStateOf("") }
+    if (group !in groups) group = ""
+    var editGroup by remember { mutableStateOf<String?>(null) }
+    var newGroup by remember { mutableStateOf(false) }
+    val text = if (onPic) Color.White else cs.onBackground
+    Box(Modifier.fillMaxSize().background(cs.background)) {
+        if (pic != null) {
+            Image(pic, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to Color.Black.copy(alpha = 0.15f), 0.5f to Color.Black.copy(alpha = 0.35f), 1f to Color.Black.copy(alpha = 0.6f))))
         }
-        items(vm.bookmarks.items, key = { it.id }) { b ->
-            // Tile = screenshot of the website, with its icon and name on a strip at the bottom.
-            val src = remember { MutableInteractionSource() }
-            val icon = Icons.get(ctx, b.url)
-            val shot = Thumbs.get(ctx, b.url)
-            Box(Modifier.pressTile(src).fillMaxWidth().aspectRatio(1.2f).background(cs.primary)
-                .combinedClickable(interactionSource = src, indication = LocalIndication.current, onClick = { onOpen(b.url) }, onLongClick = { onEdit(b) })) {
-                if (shot != null) Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-                else if (icon != null) Box(Modifier.padding(bottom = 30.dp).size(56.dp).background(Color.White).align(Alignment.Center), contentAlignment = Alignment.Center) {
-                    Image(icon, null, Modifier.size(40.dp))
-                } else Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 44.sp,
-                    fontWeight = FontWeight.Light, modifier = Modifier.align(Alignment.Center).padding(bottom = 30.dp))
-                Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(androidx.compose.ui.graphics.lerp(Color.Black, cs.primary, 0.35f).copy(alpha = 0.86f))
-                    .padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (icon != null) Box(Modifier.size(20.dp).background(Color.White), contentAlignment = Alignment.Center) { Image(icon, null, Modifier.size(16.dp)) }
-                    else Box(Modifier.size(20.dp).background(cs.primary), contentAlignment = Alignment.Center) {
-                        Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = 12.sp)
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(96.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 40.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Text("Grove", fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = text, modifier = Modifier.padding(bottom = 14.dp))
+                    HomeSearch(onPic) { vm.go(it) }
+                    // speed dial groups
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 18.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        groups.forEach { g ->
+                            val on = g == group
+                            Text(g.ifBlank { "Favorites" }, fontSize = 14.sp, color = if (on) Color.White else text,
+                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.clip(RoundedCornerShape(16.dp))
+                                    .background(if (on) cs.primary else if (onPic) Color.White.copy(alpha = 0.18f) else cs.surfaceVariant)
+                                    .combinedClickable(onClick = { group = g }, onLongClick = { if (g.isNotBlank()) editGroup = g })
+                                    .padding(horizontal = 14.dp, vertical = 7.dp))
+                        }
+                        Text("+ Group", fontSize = 14.sp, color = text.copy(alpha = 0.8f),
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)).border(1.dp, text.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                                .clickable { newGroup = true }.padding(horizontal = 14.dp, vertical = 6.dp))
                     }
-                    Text(b.title.ifBlank { Urls.host(b.url) }, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 8.dp))
                 }
             }
-        }
-        item {
-            Box(Modifier.fillMaxWidth().aspectRatio(1.2f).border(2.dp, cs.onSurfaceVariant).clickable(onClick = onAdd), contentAlignment = Alignment.Center) {
-                Text("+", fontSize = 40.sp, color = cs.onSurfaceVariant)
+            val list = vm.bookmarks.items.filter { it.group == group }
+            items(list, key = { it.id }) { b ->
+                val src = remember { MutableInteractionSource() }
+                val icon = Icons.get(ctx, b.url)
+                val shot = Thumbs.get(ctx, b.url)
+                Column(Modifier.pressTile(src).combinedClickable(interactionSource = src, indication = null, onClick = { onOpen(b.url) }, onLongClick = { onEdit(b) }),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    // quick link: a rounded card with the site's picture (or its icon), the name underneath
+                    Box(Modifier.fillMaxWidth().aspectRatio(1.1f).clip(RoundedCornerShape(14.dp))
+                        .background(if (onPic) Color.White.copy(alpha = 0.85f) else cs.surface)
+                        .border(1.dp, if (onPic) Color.Transparent else cs.outline.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center) {
+                        if (shot != null) Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                        val badge = Modifier.size(if (shot != null) 26.dp else 40.dp).clip(RoundedCornerShape(8.dp)).background(Color.White)
+                        Box(if (shot != null) Modifier.fillMaxSize().padding(6.dp) else Modifier, contentAlignment = if (shot != null) Alignment.BottomStart else Alignment.Center) {
+                            if (icon != null) Box(badge, contentAlignment = Alignment.Center) { Image(icon, null, Modifier.fillMaxSize(0.75f)) }
+                            else Box(badge.background(cs.primary), contentAlignment = Alignment.Center) {
+                                Text(b.title.trim().take(1).uppercase().ifBlank { "•" }, color = Color.White, fontSize = if (shot != null) 13.sp else 20.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    Text(b.title.ifBlank { Urls.host(b.url) }, color = text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(1.1f).clip(RoundedCornerShape(14.dp))
+                        .background(if (onPic) Color.White.copy(alpha = 0.18f) else cs.surfaceVariant).clickable { onAdd(group) },
+                        contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, "add", tint = text, modifier = Modifier.size(28.dp))
+                    }
+                    Text("Add", color = text, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+            if (list.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("Tap + or the ☆ in the address bar to add a site. Long-press a tile to edit it or move it to another group.",
+                    color = text.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
             }
         }
-        if (vm.bookmarks.items.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-            Text("tap + or ••• > add to favorites. long-press a tile to edit.", color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp))
+    }
+    if (newGroup) NameDialog("New group", "") { n -> newGroup = false; if (!n.isNullOrBlank()) { vm.extraGroups.add(n.trim()); group = n.trim() } }
+    editGroup?.let { g ->
+        NameDialog("Rename group", g, delete = { vm.deleteGroup(g); vm.extraGroups.remove(g); editGroup = null; group = "" }) { n ->
+            editGroup = null
+            if (!n.isNullOrBlank() && n.trim() != g) { vm.renameGroup(g, n); vm.extraGroups.remove(g); group = n.trim() }
         }
     }
+}
+
+@Composable
+private fun HomeSearch(onPic: Boolean, onGo: (String) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    var q by remember { mutableStateOf("") }
+    BasicTextField(q, { q = it }, singleLine = true,
+        textStyle = TextStyle(color = Color(0xFF1B1B1B), fontSize = 16.sp),
+        cursorBrush = SolidColor(cs.primary),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
+        keyboardActions = KeyboardActions(onGo = { if (q.isNotBlank()) { onGo(q); q = "" } }),
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        decorationBox = { inner ->
+            Row(Modifier.fillMaxSize().shadow(if (onPic) 0.dp else 2.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
+                .background(Color.White).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Search, null, tint = Color(0xFF616161), modifier = Modifier.size(20.dp))
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    if (q.isEmpty()) Text("Search or enter web address", color = Color(0xFF8A8A8A), fontSize = 16.sp, maxLines = 1)
+                    inner()
+                }
+            }
+        })
+}
+
+/** Small dialog asking for a name (groups). Returns null when cancelled. */
+@Composable
+fun NameDialog(title: String, start: String, delete: (() -> Unit)? = null, done: (String?) -> Unit) {
+    var name by remember { mutableStateOf(start) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { done(null) },
+        title = { Text(title) },
+        text = { androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+        confirmButton = { androidx.compose.material3.TextButton({ done(name) }) { Text("Save") } },
+        dismissButton = {
+            Row {
+                if (delete != null) androidx.compose.material3.TextButton(delete) { Text("Delete group") }
+                androidx.compose.material3.TextButton({ done(null) }) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 /**
@@ -176,11 +275,25 @@ fun TabsSheet(vm: BrowserVM, visible: Boolean, onClose: () -> Unit) {
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(cs.onSurface.copy(alpha = 0.3f)))
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val normal = vm.tabs.count { !it.private }; val priv = vm.tabs.size - normal
-                        SheetTab("tabs  $normal", !private) { private = false }
-                        SheetTab("inprivate  $priv", private) { private = true }
+                        SheetTab("Tabs  $normal", !private) { private = false }
+                        SheetTab("InPrivate  $priv", private) { private = true }
                         Spacer(Modifier.weight(1f))
-                        if (vm.closed.isNotEmpty()) Text("reopen", color = cs.primary, fontSize = 15.sp,
-                            modifier = Modifier.clickable { vm.reopenClosed(); onClose() }.padding(10.dp))
+                        // tab tricks (Vivaldi style)
+                        var tools by remember { mutableStateOf(false) }
+                        Box {
+                            Box(Modifier.size(40.dp).clip(CircleShape).clickable { tools = true }, contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.Icon(EI.More, "tab tools", tint = cs.onSurface, modifier = Modifier.size(22.dp))
+                            }
+                            androidx.compose.material3.DropdownMenu(tools, { tools = false }) {
+                                @Composable fun item(label: String, enabled: Boolean = true, go: () -> Unit) =
+                                    androidx.compose.material3.DropdownMenuItem({ Text(label) }, { tools = false; go() }, enabled = enabled)
+                                item("Reopen closed tab", vm.closed.isNotEmpty()) { vm.reopenClosed(); onClose() }
+                                item("Close duplicate tabs") { vm.closeDuplicates(private) }
+                                item("Stack tabs by site") { vm.sortBySite() }
+                                item("Close other tabs", vm.cur?.private == private) { vm.cur?.let { vm.closeOthers(it) } }
+                                item(if (private) "Close all InPrivate tabs" else "Close all tabs") { vm.closeAll(private); onClose() }
+                            }
+                        }
                     }
                 }
                 val list = vm.tabs.filter { it.private == private }
@@ -199,7 +312,7 @@ fun TabsSheet(vm: BrowserVM, visible: Boolean, onClose: () -> Unit) {
                         .background(if (private) Color(0xFF4A2C6E) else cs.primary).clickable { vm.newTab(private = private); onClose() }
                         .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(22.dp))
-                        Text(if (private) "inprivate tab" else "new tab", color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(start = 8.dp))
+                        Text(if (private) "InPrivate tab" else "New tab", color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -240,7 +353,7 @@ private fun TabCard(vm: BrowserVM, tab: app.grove.browser.Tab, onClose: () -> Un
             when {
                 shot != null && !tab.home -> Image(shot, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
                 tab.home -> Box(Modifier.fillMaxSize().tintBackground(), contentAlignment = Alignment.Center) {
-                    Text("new tab", color = cs.onBackground, fontSize = 17.sp, fontWeight = FontWeight.Light)
+                    Text("New tab", color = cs.onBackground, fontSize = 15.sp)
                 }
                 else -> Box(Modifier.fillMaxSize().padding(10.dp), contentAlignment = Alignment.Center) {
                     Text(Urls.host(tab.url), color = cs.onSurfaceVariant, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -365,7 +478,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
             null -> pages.forEach { (name, icon, sub) -> row(icon, name, sub = sub, click = { if (name == "extensions") onAddons() else page = name }) }
             "general" -> {
                 choice(I.Search, "search engine", ENGINES.map { it.first }, p.engine) { p.engine = it }
-                choice(I.KeyboardArrowDown, "address bar", listOf("bottom", "top"), p.barTop) { p.barTop = it }
+                choice(I.KeyboardArrowDown, "address bar", listOf("bottom", "top (like Edge)"), p.barTop) { p.barTop = it }
                 choice(I.ExitToApp, "open links in apps", listOf("ask", "always", "never"), p.appLinks) { p.appLinks = it }
                 row(I.CheckCircle, "default browser", sub = "make grove your default", click = {
                     runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
@@ -374,7 +487,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
             "appearance" -> {
                 choice(I.Edit, "theme", listOf("system", "dark", "light"), p.theme) { p.theme = it }
                 group("accent colour")
-                ACCENTS.indices.chunked(5).forEach { r ->
+                ACCENTS.indices.chunked(7).forEach { r ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         r.forEach { i ->
                             Box(Modifier.weight(1f).aspectRatio(1f).clip(CircleShape).background(Color(ACCENTS[i]))
@@ -383,6 +496,7 @@ fun SettingsScreen(vm: BrowserVM, onAddons: () -> Unit, onClose: () -> Unit) {
                         }
                     }
                 }
+                toggle(I.Home, "picture of the day", p.ntpImage == 1, "behind the new tab page (from Bing, once a day)") { p.ntpImage = 1 - p.ntpImage }
                 group("screen")
                 toggle(I.KeyboardArrowUp, "full screen", p.immersive == 1, "hide status and navigation bars") { p.immersive = 1 - p.immersive }
                 choice(I.Create, "text size", listOf(80, 100, 120, 150, 200).map { "$it%" }, listOf(80, 100, 120, 150, 200).indexOf(p.textSize)) {
@@ -440,7 +554,7 @@ fun AddonsScreen(vm: BrowserVM, onClose: () -> Unit) {
                 val m = e.metaData
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text((m.name ?: e.id).lowercase(), fontSize = 22.sp, fontWeight = FontWeight.Light, color = cs.onBackground)
-                    val builtIn = e.id == Gecko.GUARD_ID
+                    val builtIn = e.id in Gecko.LOCKED
                     Text("version ${m.version} · " + if (builtIn) "built in · always on" else if (m.enabled) "on" else "off", fontSize = 12.sp, color = cs.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 4.dp)) {
                         // the add-on's popup (e.g. uBlock Origin's on/off switch for the current site)

@@ -33,6 +33,11 @@ object Gecko {
     /** Groveguard web protection (ads, trackers, 18+, dangerous sites), built into the APK: no Mozilla signature needed. */
     const val GUARD_ID = "web-protection@groveguard.org"
     private const val GUARD_URI = "resource://android/assets/groveguard/"
+    /** Grove Vault's login extension (fills passwords from the Grove Vault app on this phone), built in like Groveguard. */
+    const val VAULT_ID = "vault@grove.browser"
+    private const val VAULT_URI = "resource://android/assets/grovevault/"
+    /** Built in, always on, in private tabs too: can't be turned off or removed. */
+    val LOCKED = setOf(GUARD_ID, VAULT_ID)
     private const val ENABLE_USER = 1 // WebExtension.EnableSource.USER
 
     @Volatile private var rt: GeckoRuntime? = null
@@ -89,6 +94,9 @@ object Gecko {
                 ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) })
             }
         }, { Log.w("Grove", "Groveguard failed", it) })
+        ctl.ensureBuiltIn(VAULT_URI, VAULT_ID).accept({ ext ->
+            if (ext != null) ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) })
+        }, { Log.w("Grove", "Grove Vault failed", it) })
         installUblock(ctx, runtime)
         refresh(runtime)
         return runtime
@@ -177,14 +185,14 @@ object Gecko {
 
     fun setEnabled(e: WebExtension, on: Boolean) {
         val r = rt ?: return
-        if (e.id == GUARD_ID && !on) return // built in, always on
+        if (e.id in LOCKED && !on) return // built in, always on
         val ctl = r.webExtensionController
         (if (on) ctl.enable(e, ENABLE_USER) else ctl.disable(e, ENABLE_USER)).accept({ refresh(r) }, { refresh(r) })
     }
 
     fun remove(e: WebExtension) {
         val r = rt ?: return
-        if (e.id == GUARD_ID) return // built in
+        if (e.id in LOCKED) return // built in
         if (e.id == UBO_ID) app.getSharedPreferences("grove", Context.MODE_PRIVATE).edit().putBoolean("ubo_removed", true).apply()
         actions.remove(e.id)
         r.webExtensionController.uninstall(e).accept({ refresh(r) }, { refresh(r) })
@@ -273,6 +281,7 @@ prefs:
   dom.security.https_first_pbm: $httpsFirst
   media.peerconnection.ice.default_address_only: true
   media.autoplay.default: 1
+  full-screen-api.allow-trusted-requests-only: false
   media.videocontrols.picture-in-picture.enabled: false
   browser.cache.memory.capacity: 65536
   general.smoothScroll: true

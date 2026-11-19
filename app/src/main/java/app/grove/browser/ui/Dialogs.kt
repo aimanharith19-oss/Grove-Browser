@@ -142,22 +142,32 @@ fun ContextMenuDialog(vm: BrowserVM) {
     )
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun BookmarkDialog(b: Bookmark, isNew: Boolean, onSave: (Bookmark) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+fun BookmarkDialog(b: Bookmark, isNew: Boolean, groups: List<String> = emptyList(), onSave: (Bookmark) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
     var title by remember(b) { mutableStateOf(b.title) }
     var url by remember(b) { mutableStateOf(b.url) }
+    var group by remember(b) { mutableStateOf(b.group) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isNew) "add to favorites" else "edit favorite") },
+        title = { Text(if (isNew) "Add to favorites" else "Edit favorite") },
         text = {
             Column {
-                OutlinedTextField(title, { title = it }, label = { Text("name") }, singleLine = true)
-                OutlinedTextField(url, { url = it }, label = { Text("address") }, singleLine = true)
+                OutlinedTextField(title, { title = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(url, { url = it }, label = { Text("Address") }, singleLine = true)
+                // speed dial group (blank = Favorites)
+                OutlinedTextField(group, { group = it }, label = { Text("Group") }, placeholder = { Text("Favorites") }, singleLine = true)
+                if (groups.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(Modifier.padding(top = 6.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                    (listOf("") + groups).distinct().forEach { g ->
+                        androidx.compose.material3.FilterChip(g == group.trim(), { group = g }, { Text(g.ifBlank { "Favorites" }) })
+                    }
+                }
             }
         },
-        confirmButton = { TextButton({ if (url.isNotBlank()) onSave(b.copy(title = title, url = url)) }) { Text("save") } },
+        confirmButton = { TextButton({ if (url.isNotBlank()) onSave(b.copy(title = title, url = url, group = group.trim())) }) { Text("Save") } },
         dismissButton = {
-            if (isNew) TextButton(onDismiss) { Text("cancel") } else TextButton(onDelete) { Text("delete") }
+            if (isNew) TextButton(onDismiss) { Text("Cancel") } else TextButton(onDelete) { Text("Delete") }
         },
     )
 }

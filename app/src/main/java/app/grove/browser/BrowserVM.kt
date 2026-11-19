@@ -65,8 +65,11 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     val runtime: GeckoRuntime = Gecko.runtime(app)
     val prefs = Prefs(app)
     val bookmarks = JsonList<Bookmark>(File(app.filesDir, "bookmarks.json"),
-        { Bookmark(it.getLong("id"), it.optString("title"), it.getString("url")) },
-        { JSONObject().put("id", it.id).put("title", it.title).put("url", it.url) })
+        { Bookmark(it.getLong("id"), it.optString("title"), it.getString("url"), it.optString("group")) },
+        { JSONObject().put("id", it.id).put("title", it.title).put("url", it.url).apply { if (it.group.isNotBlank()) put("group", it.group) } })
+    val notes = JsonList<Note>(File(app.filesDir, "notes.json"),
+        { Note(it.getLong("id"), it.optString("text"), it.optString("url"), it.optLong("time")) },
+        { JSONObject().put("id", it.id).put("text", it.text).put("url", it.url).put("time", it.time) })
     val history = JsonList<Visit>(File(app.filesDir, "history.json"),
         { Visit(it.optString("title"), it.getString("url"), it.optLong("time")) },
         { JSONObject().put("title", it.title).put("url", it.url).put("time", it.time) })
@@ -186,6 +189,94 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
     }
 
     fun reopenClosed() { closed.removeFirstOrNull()?.let { newTab(it.url) } }
+
+    // ---------- tab tricks (Vivaldi-style) ----------
+
+    /** Closes tabs showing the same page as an earlier tab. */
+    fun closeDuplicates(private: Boolean) {
+        val seen = HashSet<String>()
+        val dup = tabs.filter { it.private == private && !it.home }.filter { !seen.add(it.url.substringBefore('#')) }
+        dup.forEach { closeTab(it) }
+        toast(if (dup.isEmpty()) "no duplicate tabs" else "closed ${dup.size} duplicate tab" + if (dup.size > 1) "s" else "")
+    }
+    fun closeOthers(keep: Tab) = tabs.filter { it !== keep && it.private == keep.private }.forEach { closeTab(it) }
+    fun closeAll(private: Boolean) = tabs.filter { it.private == private }.forEach { closeTab(it) }
+    /** Tab stacks by site: tabs of the same website sit next to each other. */
+    fun sortBySite() {
+        val sorted = tabs.sortedWith(compareBy({ it.private }, { if (it.home) "~" else Urls.host(it.url).removePrefix("www.") }))
+        tabs.clear(); tabs.addAll(sorted)
+    }
+
+    // ---------- page actions (Vivaldi-style) ----------
+
+    fun toggleFx(t: Tab, name: String) {
+        if (name in t.fx) t.fx.remove(name) else t.fx.add(name)
+        sendFx(t)
+    }
+    fun clearFx(t: Tab) { t.fx.clear(); sendFx(t) }
+    private fun sendFx(t: Tab) = t.ports.forEach { runCatching { it.postMessage(JSONObject().put("fx", JSONArray(t.fx.toList()))) } }
+
+    // ---------- notes (Vivaldi-style) ----------
+
+    /** The note being written (shown in the note dialog), or null. */
+    var noteDraft by mutableStateOf<Note?>(null)
+    /** "Add note" on a page: the selected text (if any) becomes the note, with the page's address. */
+    fun noteFromPage(t: Tab) {
+        noteDraft = Note(System.currentTimeMillis(), "", t.url, System.currentTimeMillis())
+        t.ports.forEach { runCatching { it.postMessage(JSONObject().put("sel", true)) } }
+    }
+    fun saveNote(n: Note) {
+        if (n.text.isBlank()) { deleteNote(n); return }
+        val i = notes.items.indexOfFirst { it.id == n.id }
+        if (i >= 0) notes.items[i] = n.copy(time = System.currentTimeMillis()) else notes.items.add(0, n.copy(time = System.currentTimeMillis()))
+        notes.save()
+    }
+    fun deleteNote(n: Note) { if (notes.items.removeAll { it.id == n.id }) notes.save() }
+
+    // ---------- picture in picture (like Google's picture-in-picture extension) ----------
+
+    /** Floats the page's main video: it goes full screen, then into Android's picture-in-picture window. */
+    fun pipNow(t: Tab) {
+        pipAsked = System.currentTimeMillis()
+        t.ports.forEach { runCatching { it.postMessage(JSONObject().put("pipnow", true)) } }
+    }
+
+    // ---------- speed dial groups (Vivaldi-style) ----------
+
+    fun renameGroup(old: String, new: String) {
+        val n = new.trim()
+        bookmarks.items.replaceAll { if (it.group == old) it.copy(group = n) else it }
+        bookmarks.save(); autoBackup()
+    }
+    /** Deleting a group keeps its favorites: they move to the first group. */
+    fun deleteGroup(g: String) = renameGroup(g, "")
+    /** Groups made with "+ Group" that have no favorites yet. */
+    val extraGroups = mutableStateListOf<String>()
+
+    // ---------- Edge-style picture of the day for the new tab page ----------
+
+    var ntpPicture by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null); private set
+    fun loadNtpPicture() {
+        if (prefs.ntpImage == 0) { ntpPicture = null; return }
+        val f = File(ctx.filesDir, "ntp.jpg")
+        Thread {
+            runCatching {
+                val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+                val mark = File(ctx.filesDir, "ntp.day")
+                if (!f.exists() || mark.takeIf { it.exists() }?.readText() != day) {
+                    val api = java.net.URL("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US").openConnection() as java.net.HttpURLConnection
+                    api.connectTimeout = 8000; api.readTimeout = 8000
+                    val js = JSONObject(api.inputStream.bufferedReader().readText())
+                    val path = js.getJSONArray("images").getJSONObject(0).getString("url")
+                    val img = (java.net.URL("https://www.bing.com" + path.replace("1920x1080", "1080x1920")).openConnection() as java.net.HttpURLConnection)
+                        .apply { connectTimeout = 8000; readTimeout = 15000 }.inputStream.readBytes()
+                    if (android.graphics.BitmapFactory.decodeByteArray(img, 0, img.size) != null) { f.writeBytes(img); mark.writeText(day) }
+                }
+            }
+            val bmp = runCatching { android.graphics.BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull()
+            main.post { if (prefs.ntpImage == 1) ntpPicture = bmp }
+        }.start()
+    }
 
     /** Screenshot of the current page: tab preview, and the home tile if the page is a favorite. */
     fun snapshot() {
@@ -526,7 +617,9 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         if (m.optString("t") == "reader") readerResult(t, m)
                         // picture-in-picture button on a video: it asks for full screen, the window opens when that happens
                         if (m.optString("t") == "pip" && t === cur) { pipAsked = System.currentTimeMillis(); if (fullscreen) { pipAsked = 0; enterPip?.invoke() } }
-                        if (m.optString("t") == "pipcancel") pipAsked = 0
+                        if (m.optString("t") == "pipcancel") { pipAsked = 0; if (m.optBoolean("none")) toast("no video on this page") }
+                        // selected text for "add note"
+                        if (m.optString("t") == "sel") noteDraft?.let { d -> if (d.text.isBlank() && m.optString("text").isNotBlank()) noteDraft = d.copy(text = m.optString("text").take(5000)) }
                         if (m.optString("t") == "video") {
                             t.videoFrames[port] = m.optBoolean("playing")
                             t.videoPlaying = t.videoFrames.values.any { it }
@@ -538,7 +631,7 @@ class BrowserVM(app: Application, val webApp: String? = null, private val webSco
                         if (t.videoFrames.remove(port) != null) t.videoPlaying = t.videoFrames.values.any { it }
                     }
                 })
-                runCatching { port.postMessage(JSONObject().put("bg", prefs.bgPlay == 1).put("mini", prefs.miniBtn == 1)) }
+                runCatching { port.postMessage(JSONObject().put("bg", prefs.bgPlay == 1).put("mini", prefs.miniBtn == 1).put("fx", JSONArray(t.fx.toList()))) }
             }
         }, "grove")
     }

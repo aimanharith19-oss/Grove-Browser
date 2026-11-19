@@ -9,6 +9,9 @@
     if ("bg" in m) bg = !!m.bg;
     if (m.reader && window === window.top) makeReader(m.reader);
     if ("mini" in m) miniOn = !!m.mini;
+    if ("fx" in m && window === window.top) pageFx(m.fx || []);
+    if (m.sel && window === window.top) send({ t: "sel", text: String(getSelection() || "").trim() });
+    if (m.pipnow && window === window.top) pipNow();
   });
 
   // Background play: the page keeps seeing itself as visible, so sites don't pause.
@@ -116,6 +119,38 @@
   document.addEventListener("fullscreenchange", queuePlace, true);
   for (const ev of ["play", "playing", "loadedmetadata", "emptied"]) document.addEventListener(ev, queuePlace, true);
   setInterval(() => { if (scrolling || document.hidden) return; if (document.querySelector("video")) placeBtn(); else if (btn) btn.style.display = "none"; }, 1500);
+
+  // ---------- picture in picture from the menu (like Google's picture-in-picture extension): the biggest video floats
+  function pipNow() {
+    const vs = [...document.querySelectorAll("video")].filter(v => v.readyState > 0);
+    const area = v => { const r = v.getBoundingClientRect(); return r.width * r.height + (v.paused ? 0 : 1e9); };
+    const v = vs.sort((a, b) => area(b) - area(a))[0];
+    if (!v) { send({ t: "pipcancel", none: true }); return; }
+    if (v.paused) v.play().catch(() => {});
+    try { const r = v.requestFullscreen(); if (r && r.catch) r.catch(() => send({ t: "pipcancel" })); } catch (er) { send({ t: "pipcancel" }); }
+  }
+
+  // ---------- page actions (Vivaldi-style): filters and fonts for this page, kept while the tab is open
+  const FX = {
+    grayscale: ["grayscale(1)"], dark: ["invert(.9) hue-rotate(180deg)"], sepia: ["sepia(.6)"], contrast: ["contrast(1.4)"],
+  };
+  const FXCSS = {
+    dark: "img,video,picture,canvas,iframe,[style*='background-image']{filter:invert(1) hue-rotate(180deg) !important}",
+    serif: "body,body *:not(i):not([class*=icon]):not([class*=Icon]){font-family:Georgia,'Noto Serif',serif !important}",
+    mono: "body,body *:not(i):not([class*=icon]):not([class*=Icon]){font-family:'Roboto Mono',monospace !important}",
+    bigtext: "html{font-size:125% !important}body{font-size:1.15em !important}",
+    noimages: "img,picture,svg image,[style*='background-image']{visibility:hidden !important}",
+    noanim: "*,*::before,*::after{animation:none !important;transition:none !important;scroll-behavior:auto !important}",
+  };
+  let fxEl = null;
+  function pageFx(list) {
+    const filt = list.filter(k => FX[k]).map(k => FX[k][0]).join(" ");
+    const css = (filt ? "html{filter:" + filt + " !important}" : "") + list.map(k => FXCSS[k] || "").join("");
+    if (!css) { if (fxEl) { fxEl.remove(); fxEl = null; } return; }
+    if (!fxEl) { fxEl = document.createElement("style"); fxEl.id = "grove-page-actions"; }
+    fxEl.textContent = css;
+    (document.head || document.documentElement).appendChild(fxEl);
+  }
 
   // ---------- YouTube: no "Video paused. Continue watching?" interruptions
   if (/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) {
