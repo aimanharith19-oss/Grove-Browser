@@ -119,7 +119,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 enum class Overlay { NONE, TABS, FAVORITES, RECENT, SETTINGS, ADDONS, SAVED, NOTES }
 
 /** A menu entry: an icon and label in the Edge-style menu grid. */
-class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: () -> Unit)
+class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector = EI.More, val action: () -> Unit)
 
 @Composable
 fun BrowserScreen(vm: BrowserVM) {
@@ -178,6 +178,35 @@ fun BrowserScreen(vm: BrowserVM) {
             isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
         }
     }
+    val web = !t.home && Urls.isWeb(t.url)
+    // Edge-style menu: one grid of icons (4 per row)
+    val items = buildList {
+        add(MenuItem("Favorites", androidx.compose.material.icons.Icons.Default.Star) { overlay = Overlay.FAVORITES })
+        add(MenuItem("History", EI.History) { overlay = Overlay.RECENT })
+        add(MenuItem("Downloads", EI.Download) { vm.openDownloads() })
+        add(MenuItem("Notes", EI.Note) { overlay = Overlay.NOTES })
+        add(MenuItem("InPrivate", androidx.compose.material.icons.Icons.Default.Lock) { vm.newTab(private = true) })
+        if (!t.home) add(MenuItem("Share", androidx.compose.material.icons.Icons.Default.Share) { share(ctx, t.url) })
+        if (!t.home) add(MenuItem("Find on page", androidx.compose.material.icons.Icons.Default.Search) { find = true })
+        if (web) add(MenuItem("Add note", androidx.compose.material.icons.Icons.Default.Create) { vm.noteFromPage(t) })
+        if (web) add(MenuItem("Page actions", EI.Palette) { pageFx = true })
+        if (web) add(MenuItem("Reader", EI.Reader) { vm.reader(t, "view") })
+        if (web) add(MenuItem("Picture in picture", EI.Pip) { vm.pipNow(t) })
+        if (vm.closed.isNotEmpty()) add(MenuItem("Reopen tab", EI.Reopen) { vm.reopenClosed() })
+        if (!t.home) add(MenuItem(if (t.desktop) "Mobile site" else "Desktop site", EI.Desktop) { vm.toggleDesktop(t) })
+        if (vm.saved.items.isNotEmpty()) add(MenuItem("Saved pages", EI.Saved) { overlay = Overlay.SAVED })
+        if (web) {
+            add(MenuItem("Save offline", EI.Saved) { vm.reader(t, "save") })
+            add(MenuItem("Save as PDF", EI.Download) { vm.savePdf(t) })
+            add(MenuItem("Print", EI.Print) { vm.print(t) })
+            if (t.manifest != null) add(MenuItem("Install app", EI.Install) { vm.installWebApp(t) })
+            add(MenuItem("Pin to start", EI.Pin) { pin(ctx, t) })
+            if (t.trackers > 0) add(MenuItem("${t.trackers} trackers", EI.Shield) { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
+        }
+        add(MenuItem("Extensions", EI.Puzzle) { overlay = Overlay.ADDONS })
+        add(MenuItem("Settings", androidx.compose.material.icons.Icons.Default.Settings) { overlay = Overlay.SETTINGS })
+        if (vm.prefs.clearOnQuit == 1) add(MenuItem("Quit", EI.Exit) { vm.clearData(); activity.finishAndRemoveTask() })
+    }
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().background(edge)
@@ -198,35 +227,6 @@ fun BrowserScreen(vm: BrowserVM) {
         }
         val barTop = vm.prefs.barTop == 1
         val showBars = !immersive && !standalone && (overlay == Overlay.NONE || overlay == Overlay.TABS)
-        val web = !t.home && Urls.isWeb(t.url)
-        // Edge-style menu: one grid of icons (4 per row)
-        val items = buildList {
-            add(MenuItem("Favorites", androidx.compose.material.icons.Icons.Default.Star) { overlay = Overlay.FAVORITES })
-            add(MenuItem("History", EI.History) { overlay = Overlay.RECENT })
-            add(MenuItem("Downloads", EI.Download) { vm.openDownloads() })
-            add(MenuItem("Notes", EI.Note) { overlay = Overlay.NOTES })
-            add(MenuItem("InPrivate", androidx.compose.material.icons.Icons.Default.Lock) { vm.newTab(private = true) })
-            if (!t.home) add(MenuItem("Share", androidx.compose.material.icons.Icons.Default.Share) { share(ctx, t.url) })
-            if (!t.home) add(MenuItem("Find on page", androidx.compose.material.icons.Icons.Default.Search) { find = true })
-            if (web) add(MenuItem("Add note", androidx.compose.material.icons.Icons.Default.Create) { vm.noteFromPage(t) })
-            if (web) add(MenuItem("Page actions", EI.Palette) { pageFx = true })
-            if (web) add(MenuItem("Reader", EI.Reader) { vm.reader(t, "view") })
-            if (web) add(MenuItem("Picture in picture", EI.Pip) { vm.pipNow(t) })
-            if (vm.closed.isNotEmpty()) add(MenuItem("Reopen tab", EI.Reopen) { vm.reopenClosed() })
-            if (!t.home) add(MenuItem(if (t.desktop) "Mobile site" else "Desktop site", EI.Desktop) { vm.toggleDesktop(t) })
-            if (vm.saved.items.isNotEmpty()) add(MenuItem("Saved pages", EI.Saved) { overlay = Overlay.SAVED })
-            if (web) {
-                add(MenuItem("Save offline", EI.Saved) { vm.reader(t, "save") })
-                add(MenuItem("Save as PDF", EI.Download) { vm.savePdf(t) })
-                add(MenuItem("Print", EI.Print) { vm.print(t) })
-                if (t.manifest != null) add(MenuItem("Install app", EI.Install) { vm.installWebApp(t) })
-                add(MenuItem("Pin to start", EI.Pin) { pin(ctx, t) })
-                if (t.trackers > 0) add(MenuItem("${t.trackers} trackers", EI.Shield) { vm.toast("grove's tracking protection stopped ${t.trackers} trackers on this page") })
-            }
-            add(MenuItem("Extensions", EI.Puzzle) { overlay = Overlay.ADDONS })
-            add(MenuItem("Settings", androidx.compose.material.icons.Icons.Default.Settings) { overlay = Overlay.SETTINGS })
-            if (vm.prefs.clearOnQuit == 1) add(MenuItem("Quit", EI.Exit) { vm.clearData(); activity.finishAndRemoveTask() })
-        }
         val favorite: (() -> Unit)? = if (t.home) null else {
             { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
         }
