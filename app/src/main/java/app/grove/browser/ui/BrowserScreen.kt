@@ -230,7 +230,8 @@ fun BrowserScreen(vm: BrowserVM) {
         val favorite: (() -> Unit)? = if (t.home) null else {
             { editBm = vm.bookmarks.items.firstOrNull { it.url == t.url } ?: Bookmark(System.currentTimeMillis(), t.title.ifBlank { Urls.host(t.url) }, t.url) }
         }
-        val bar: @Composable () -> Unit = { if (showBars) {
+        // the new tab page has its own search box (like Edge), so the address bar steps aside there
+        val bar: @Composable () -> Unit = { if (showBars && !(t.home && !editing && overlay == Overlay.NONE)) {
             AddressBar(vm, t, editing,
                 onEditing = { editing = it; if (it) menu = false else query = "" },
                 onQuery = { query = it },
