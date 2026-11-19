@@ -95,7 +95,7 @@ object Gecko {
             }
         }, { Log.w("Grove", "Groveguard failed", it) })
         ctl.ensureBuiltIn(VAULT_URI, VAULT_ID).accept({ ext ->
-            if (ext != null) ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) })
+            if (ext != null) { Log.i("Grove", "Grove Vault ready ${ext.metaData.version}"); ctl.setAllowedInPrivateBrowsing(ext, true).accept({ refresh(runtime) }, { refresh(runtime) }) }
         }, { Log.w("Grove", "Grove Vault failed", it) })
         installUblock(ctx, runtime)
         refresh(runtime)

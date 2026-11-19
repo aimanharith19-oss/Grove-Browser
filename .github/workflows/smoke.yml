@@ -50,6 +50,7 @@ jobs:
             adb logcat -c
             adb shell am start -n app.grove.browser/.MainActivity
             sleep 40
+            adb shell screencap -p /sdcard/h.png && adb pull /sdcard/h.png home.png || true
             adb shell am start -a android.intent.action.VIEW -d https://example.com app.grove.browser
             sleep 25
             adb shell dumpsys activity processes | grep -E 'app.grove.browser' | head -12 || true
@@ -80,4 +81,4 @@ jobs:
           python3 -c "import sys; d=float(open('pagecheck.txt').read()); print('PAGE BLACK' if d > 0.9 else 'page drawn'); sys.exit(1 if d > 0.9 else 0)"
       - if: always()
         uses: actions/upload-artifact@v4
-        with: { name: smoke-logs, path: "logcat.txt\nscreen.png" }
+        with: { name: smoke-logs, path: "logcat.txt\nscreen.png\nhome.png" }
