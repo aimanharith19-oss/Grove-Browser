@@ -70,6 +70,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -308,6 +309,19 @@ private fun androidx.compose.foundation.layout.BoxScope.PullIndicator(vm: Browse
 
 @Composable
 private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
+    // Coming back from the home screen the texture surface is gone and Gecko doesn't repaint it (blank page until a refresh):
+    // on every start, detach and re-attach the session so the compositor gets a fresh surface.
+    val view = remember { arrayOfNulls<GeckoView>(1) }
+    val owner = LocalContext.current as? androidx.lifecycle.LifecycleOwner
+    DisposableEffect(owner, session) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_START) view[0]?.let { v ->
+                if (v.session === session && session.isOpen) runCatching { v.releaseSession(); v.setSession(session); session.setActive(true) }
+            }
+        }
+        owner?.lifecycle?.addObserver(obs)
+        onDispose { owner?.lifecycle?.removeObserver(obs) }
+    }
     AndroidView(
         // TextureView rendering: no black flashes or misplaced pages under Grove's menus and overlays.
         factory = { c ->
@@ -319,6 +333,7 @@ private fun GeckoHost(vm: BrowserVM, session: GeckoSession) {
                 setAutofillEnabled(true)
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                 val v = this
+                view[0] = v
                 vm.capture = { runCatching { v.capturePixels() }.getOrNull() } // screenshots for tab previews and home tiles
             }
         },
